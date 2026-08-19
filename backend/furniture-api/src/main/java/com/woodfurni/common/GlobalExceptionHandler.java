@@ -2,7 +2,6 @@ package com.woodfurni.common;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.FieldError as SpringFieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -34,8 +33,8 @@ public class GlobalExceptionHandler {
                 .getAllErrors()
                 .stream()
                 .map(error -> {
-                    String fieldName = error instanceof SpringFieldError
-                            ? ((SpringFieldError) error).getField()
+                    String fieldName = error instanceof org.springframework.validation.FieldError
+                            ? ((org.springframework.validation.FieldError) error).getField()
                             : error.getObjectName();
                     String message = error.getDefaultMessage();
                     return new com.woodfurni.common.FieldError(fieldName, message);

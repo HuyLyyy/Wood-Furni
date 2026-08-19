@@ -30,8 +30,8 @@ server:
 # =============================================================================
 jwt:
   secret: ${JWT_SECRET:your-super-secret-key-must-be-at-least-32-characters-long-for-hs256}
-  expiration: 3600000      # 1 hour in milliseconds
-  refresh-expiration: 604800000  # 7 days in milliseconds
+  access-token-expiration-ms: ${JWT_ACCESS_EXPIRATION:3600000}   # 1 hour in milliseconds
+  refresh-token-expiration-ms: ${JWT_REFRESH_EXPIRATION:604800000}  # 7 days in milliseconds
 
 # =============================================================================
 # Swagger / OpenAPI Configuration
