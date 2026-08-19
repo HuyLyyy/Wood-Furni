@@ -2,14 +2,12 @@ package com.woodfurni.common;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.validation.FieldError;
+import org.springframework.validation.FieldError as SpringFieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -32,15 +30,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Object>> handleValidationExceptions(
             MethodArgumentNotValidException ex) {
 
-        List<FieldError> fieldErrors = ex.getBindingResult()
+        List<com.woodfurni.common.FieldError> fieldErrors = ex.getBindingResult()
                 .getAllErrors()
                 .stream()
                 .map(error -> {
-                    String fieldName = error instanceof FieldError
-                            ? ((FieldError) error).getField()
+                    String fieldName = error instanceof SpringFieldError
+                            ? ((SpringFieldError) error).getField()
                             : error.getObjectName();
                     String message = error.getDefaultMessage();
-                    return new FieldError(fieldName, message);
+                    return new com.woodfurni.common.FieldError(fieldName, message);
                 })
                 .collect(Collectors.toList());
 
@@ -76,9 +74,6 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Object>> handleGenericException(Exception ex) {
-        // Log the full exception for debugging
-        ex.printStackTrace();
-
         ApiResponse<Object> response = ApiResponse.error(
                 "An unexpected error occurred: " + ex.getClass().getSimpleName());
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
