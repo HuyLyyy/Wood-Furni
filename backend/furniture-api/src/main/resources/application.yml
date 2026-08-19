@@ -1,1 +1,74 @@
-# TODO: Configure in Task 1.1
+# =============================================================================
+# WOODFURNI - Spring Boot Application Configuration
+# =============================================================================
+
+spring:
+  application:
+    name: furniture-api
+
+  # MongoDB Configuration
+  data:
+    mongodb:
+      # MongoDB URI - override with MONGODB_URI environment variable
+      # Default: mongodb://localhost:27017/woodfurni
+      uri: ${MONGODB_URI:mongodb://localhost:27017/woodfurni}
+      auto-index-creation: true
+      # Database name (extracted from URI if not specified)
+      database: ${MONGODB_DATABASE:woodfurni}
+
+# Server Configuration
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /api/v1
+  error:
+    include-message: always
+    include-binding-errors: always
+
+# =============================================================================
+# JWT Configuration
+# =============================================================================
+jwt:
+  secret: ${JWT_SECRET:your-super-secret-key-must-be-at-least-32-characters-long-for-hs256}
+  expiration: 3600000      # 1 hour in milliseconds
+  refresh-expiration: 604800000  # 7 days in milliseconds
+
+# =============================================================================
+# Swagger / OpenAPI Configuration
+# =============================================================================
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+    enabled: true
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+    operationsSorter: method
+    tagsSorter: alpha
+  show-actuator: false
+
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+logging:
+  level:
+    root: INFO
+    com.woodfurni: DEBUG
+    org.springframework.data.mongodb: DEBUG
+    org.springframework.security: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+
+# =============================================================================
+# Actuator Configuration
+# =============================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
