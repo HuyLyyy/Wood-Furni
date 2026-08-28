@@ -52,6 +52,7 @@ app.use(cors({
 app.use('/api', createProxyMiddleware({
     target: BACKEND_BASE_URL,
     changeOrigin: true,
+    pathRewrite: { '^/api': '/api' },
     on: {
         proxyReq: (proxyReq, req) => {
             // Forward Authorization header from browser → backend
