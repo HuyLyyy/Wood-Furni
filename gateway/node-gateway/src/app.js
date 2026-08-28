@@ -22,6 +22,11 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://
     .filter(Boolean);
 const BACKEND_BASE_URL = process.env.BACKEND_BASE_URL || 'http://backend:8080';
 
+// DEBUG: log env vars on startup
+console.log('[gateway] BACKEND_BASE_URL =', BACKEND_BASE_URL);
+console.log('[gateway] PORT =', PORT);
+console.log('[gateway] NODE_ENV =', process.env.NODE_ENV);
+
 const app = express();
 
 app.use(cors({
