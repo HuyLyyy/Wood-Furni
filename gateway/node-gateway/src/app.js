@@ -22,18 +22,7 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'http://localhost:5173,http://
     .filter(Boolean);
 const BACKEND_BASE_URL = process.env.BACKEND_BASE_URL || 'http://backend:8080';
 
-// DEBUG: log env vars on startup
-console.log('[gateway] BACKEND_BASE_URL =', BACKEND_BASE_URL);
-console.log('[gateway] PORT =', PORT);
-console.log('[gateway] NODE_ENV =', process.env.NODE_ENV);
-
 const app = express();
-
-// DEBUG: log every incoming request
-app.use((req, res, next) => {
-    console.log(`[gateway] ${req.method} ${req.originalUrl}`);
-    next();
-});
 
 app.use(cors({
     origin: CORS_ORIGINS,
@@ -54,11 +43,14 @@ app.use('/api/v1', createProxyMiddleware({
     changeOrigin: true,
     on: {
         proxyReq: (proxyReq, req) => {
+            // Rebuild path: keep /api/v1 prefix when mounting at /api/v1
+            const newPath = '/api/v1' + req.url;
+            proxyReq.path = newPath;
             // Forward Authorization header from browser → backend
             const auth = req.headers['authorization'];
             if (auth) proxyReq.setHeader('Authorization', auth);
             // DEBUG: log proxy target
-            console.log(`[gateway] proxying ${req.method} ${req.originalUrl} -> ${BACKEND_BASE_URL}${proxyReq.path}`);
+            console.log(`[gateway] proxying ${req.method} ${req.originalUrl} -> ${BACKEND_BASE_URL}${newPath}`);
         },
         proxyRes: (proxyRes, req, res) => {
             console.log(`[gateway] <- backend response: ${proxyRes.statusCode} ${req.method} ${req.originalUrl}`);
