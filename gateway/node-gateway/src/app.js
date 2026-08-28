@@ -61,6 +61,9 @@ app.use('/api', createProxyMiddleware({
             // DEBUG: log proxy target
             console.log(`[gateway] proxying ${req.method} ${req.originalUrl} -> ${BACKEND_BASE_URL}${proxyReq.path}`);
         },
+        proxyRes: (proxyRes, req, res) => {
+            console.log(`[gateway] <- backend response: ${proxyRes.statusCode} ${req.method} ${req.originalUrl}`);
+        },
     },
     onError: (err, req, res) => {
         console.error('[gateway] proxy error:', err.message);
