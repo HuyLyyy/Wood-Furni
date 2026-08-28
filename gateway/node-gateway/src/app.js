@@ -29,6 +29,12 @@ console.log('[gateway] NODE_ENV =', process.env.NODE_ENV);
 
 const app = express();
 
+// DEBUG: log every incoming request
+app.use((req, res, next) => {
+    console.log(`[gateway] ${req.method} ${req.originalUrl}`);
+    next();
+});
+
 app.use(cors({
     origin: CORS_ORIGINS,
     credentials: true,
