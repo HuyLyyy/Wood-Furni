@@ -1,0 +1,29 @@
+.admin-pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    margin-top: 16px;
+}
+.admin-pagination__btn {
+    min-width: 32px;
+    height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--color-border-strong);
+    background: #fff;
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    font-size: 13px;
+    cursor: pointer;
+}
+.admin-pagination__btn:hover:not(:disabled) {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+.admin-pagination__btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.admin-pagination__btn.is-active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+}
+.admin-pagination__ellipsis { color: var(--color-text-muted); padding: 0 4px; }

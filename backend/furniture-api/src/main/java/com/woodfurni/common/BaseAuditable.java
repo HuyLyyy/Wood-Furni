@@ -1,7 +1,9 @@
 package com.woodfurni.common;
 
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.Setter;
+import lombok.experimental.SuperBuilder;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
@@ -13,46 +15,43 @@ import java.time.Instant;
  * Base class for all MongoDB entities.
  * Provides automatic timestamp management via Spring Data MongoDB Auditing.
  *
- * Usage: Entity classes should extend this class:
- * {@code
- * @Document(collection = "products")
- * public class Product extends BaseAuditable {
- *     // ...
- * }
- * }
+ * Usage: {@code @Document(collection = "products") public class Product extends BaseAuditable { ... }}
  *
  * Requirements:
  * - @EnableMongoAuditing must be present (configured in FurnitureApiApplication)
- * - Entity must extend BaseAuditable
  *
  * Fields are automatically set by MongoDB auditing:
  * - createdAt: Set when entity is first persisted
  * - updatedAt: Updated on every save operation
+ *
+ * Note: {@code id} is {@code public} (instead of {@code protected}) so that
+ * subclasses extending this class can write a custom Lombok builder method
+ * that surfaces {@code .id(String)} without re-declaring the field (which
+ * would cause Spring Data Mongo to detect two {@code @Id} mappings).
  */
 @Getter
 @Setter
+@SuperBuilder
+@NoArgsConstructor
 public abstract class BaseAuditable {
 
     /**
      * MongoDB document ID.
-     * Subclasses can override this field name with @Field if needed.
      */
     @Id
-    protected String id;
+    public String id;
 
     /**
      * Timestamp when the entity was first created.
-     * Automatically set by @CreatedDate when the entity is saved for the first time.
      */
     @CreatedDate
     @Field("createdAt")
-    protected Instant createdAt;
+    public Instant createdAt;
 
     /**
      * Timestamp when the entity was last modified.
-     * Automatically updated by @LastModifiedDate on every save operation.
      */
     @LastModifiedDate
     @Field("updatedAt")
-    protected Instant updatedAt;
+    public Instant updatedAt;
 }

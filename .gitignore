@@ -101,6 +101,8 @@ mongo.lock
 .env.local
 .env.*.local
 docker-compose.override.yml
+docker/.env
+docker/.env.local
 
 # --- Documentation artifacts ---
 docs/testing/coverage/

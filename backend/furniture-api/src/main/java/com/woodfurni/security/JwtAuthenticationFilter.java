@@ -10,6 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -23,7 +25,15 @@ import java.util.List;
  * Extracts Bearer token from Authorization header, validates it,
  * and sets the SecurityContext if valid.
  *
- * Executes once per request, before the controller.
+ * <p>Bug fix (2026-08-20): the filter was previously setting the JWT subject
+ * (a plain String) as the {@code Authentication} principal. Every controller in
+ * this project binds {@code @AuthenticationPrincipal UserDetails userDetails},
+ * which only resolves when the principal is actually a {@code UserDetails}.
+ * Result: NPE on the first call site that touched the principal. We now build
+ * a {@link User} and assign it as the principal so {@code @AuthenticationPrincipal}
+ * resolves correctly across the board.
+ *
+ * <p>Executes once per request, before the controller.
  */
 @Slf4j
 @Component
@@ -52,8 +62,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         new SimpleGrantedAuthority("ROLE_" + role.name())
                 );
 
+                UserDetails principal = User.withUsername(userId)
+                        .password("")
+                        .authorities(authorities)
+                        .build();
+
                 UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(userId, null, authorities);
+                        new UsernamePasswordAuthenticationToken(principal, null, authorities);
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
 
                 SecurityContextHolder.getContext().setAuthentication(authentication);

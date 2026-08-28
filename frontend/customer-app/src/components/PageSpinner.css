@@ -1,0 +1,24 @@
+.page-spinner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 240px;
+    padding: 48px;
+}
+
+.page-spinner__dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--color-primary);
+    animation: page-spinner-bounce 1.2s infinite ease-in-out;
+}
+
+.page-spinner__dot:nth-child(2) { animation-delay: 0.15s; }
+.page-spinner__dot:nth-child(3) { animation-delay: 0.3s; }
+
+@keyframes page-spinner-bounce {
+    0%, 80%, 100% { transform: scale(0.5); opacity: 0.4; }
+    40% { transform: scale(1); opacity: 1; }
+}

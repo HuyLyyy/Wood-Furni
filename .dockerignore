@@ -1,0 +1,58 @@
+# =============================================================================
+# Exclude khỏi build context — giảm image size, tăng cache hit.
+# Đặt ở root woodfurni/ vì tất cả Dockerfiles đều COPY context ở root.
+#
+# ⚠️ QUAN TRỌNG: KHÔNG được exclude các file mà Dockerfiles tham chiếu
+# (docker/*.Dockerfile, docker/nginx-frontend.conf, docker/mongo-entrypoint.sh)
+# — sẽ gây lỗi build "unexpected end of JSON input" hoặc missing file.
+# =============================================================================
+
+# Git / OS
+.git
+.gitignore
+.gitattributes
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+
+# Node
+**/node_modules
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/.npm
+**/.next
+**/.cache
+**/coverage
+**/.vite
+
+# Java / Maven
+**/target
+**/*.jar
+**/.mvn
+**/mvnw
+**/mvnw.cmd
+
+# Docker runtime secrets (không commit)
+docker/.env
+docker/.env.local
+docker/.env.*.local
+
+# Tài liệu README toàn repo — không cần trong image
+**/README.md
+**/*.md
+!backend/**/README.md
+!database/**/*.md
+
+# Test artifacts
+**/__tests__
+**/*.test.js
+**/*.test.jsx
+**/*.spec.js
+**/*.spec.jsx
+**/.vitest
+
+# Sample data lớn
+database/sample-data/*.json
+database/backup

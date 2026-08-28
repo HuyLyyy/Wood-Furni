@@ -11,6 +11,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
+import lombok.experimental.SuperBuilder;
 import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
@@ -35,7 +36,7 @@ import java.util.List;
 @Document(collection = "users")
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Builder
+@SuperBuilder
 @NoArgsConstructor
 @AllArgsConstructor
 public class User extends BaseAuditable {
@@ -52,6 +53,9 @@ public class User extends BaseAuditable {
     private String fullName;
 
     private String phone;
+
+    @Indexed(unique = true, sparse = true)
+    private String customerCode;
 
     @NotNull(message = "Role is required")
     @Builder.Default

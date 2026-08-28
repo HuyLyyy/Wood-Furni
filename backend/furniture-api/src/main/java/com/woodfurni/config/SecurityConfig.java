@@ -15,21 +15,27 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-
-import java.util.Arrays;
-import java.util.List;
 
 /**
  * Security configuration for WOODFURNI API.
  *
- * - JWT Authentication via JwtAuthenticationFilter
- * - Stateless session (no server-side session storage)
- * - CORS enabled for frontend apps
- * - Public endpoints: /api/v1/auth/**, GET /api/v1/products/**, GET /api/v1/categories/**
- * - All other endpoints require authentication
+ * Phân quyền chi tiết được khai báo tại từng Controller qua @PreAuthorize.
+ * SecurityFilterChain chỉ khai báo public endpoints.
+ *
+ * RBAC Role Constraints (ánh xạ theo WOODFURNI_AI_DEV_SPEC_1.md):
+ * ┌─────────────────────────────────────────────────────────────────────────┐
+ * │ Role       │ Modules                                                    │
+ * ├─────────────────────────────────────────────────────────────────────────┤
+ * │ CUSTOMER   │ cart, checkout (M05/M06), review (M09), xem đơn của mình   │
+ * │ SALES      │ dashboard (M10), xem/đổi trạng thái order (M06)             │
+ * │ WAREHOUSE  │ quản lý inventory (M07)                                    │
+ * │ CONTENT    │ quản lý category/material/product (M02/M03)              │
+ * │ ADMIN      │ toàn quyền + dashboard (M10)                              │
+ * └─────────────────────────────────────────────────────────────────────────┘
+ *
+ * Public endpoints: /api/v1/auth/**, GET /api/v1/products/**, GET /api/v1/categories/**,
+ *                    GET /api/v1/materials/**, Swagger, Actuator
+ * Protected endpoints: tất cả còn lại → require authentication + @PreAuthorize tại Controller
  */
 @Configuration
 @EnableWebSecurity
@@ -45,8 +51,8 @@ public class SecurityConfig {
                 // Disable CSRF for REST API (stateless JWT)
                 .csrf(csrf -> csrf.disable())
 
-                // Enable CORS
-                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                // CORS disabled — handled by gateway (nginx) layer
+                .cors(cors -> cors.disable())
 
                 // Stateless session management
                 .sessionManagement(session ->
@@ -59,11 +65,23 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // ========== Public Endpoints ==========
                         // Auth endpoints
-                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers("/auth/**").permitAll()
 
-                        // Catalog - public read-only
-                        .requestMatchers(HttpMethod.GET, "/api/v1/products/**").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/api/v1/categories/**").permitAll()
+                        // Catalog - public read-only (protected endpoints use @PreAuthorize per Controller)
+                        .requestMatchers(HttpMethod.GET, "/products/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/categories/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/materials/**").permitAll()
+
+                        // Storage - serve uploaded product images publicly
+                        .requestMatchers("/storage/**").permitAll()
+
+                        // Shipping distances — public list (admin-only mutations use @PreAuthorize per Controller)
+                        .requestMatchers(HttpMethod.GET, "/shipping/distances").permitAll()
+
+                        // Reviews - public read-only (POST requires CUSTOMER)
+                        .requestMatchers(HttpMethod.GET, "/products/*/reviews").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/products/*/reviews/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/admin/reviews").permitAll()
 
                         // Swagger / OpenAPI
                         .requestMatchers(
@@ -76,8 +94,6 @@ public class SecurityConfig {
                         .requestMatchers("/health/**", "/actuator/health").permitAll()
 
                         // ========== Protected Endpoints ==========
-                        // All other requests require authentication
-                        // Full RBAC will be configured in subsequent tasks
                         .anyRequest().authenticated()
                 );
 
@@ -93,36 +109,5 @@ public class SecurityConfig {
     public AuthenticationManager authenticationManager(
             AuthenticationConfiguration authenticationConfiguration) throws Exception {
         return authenticationConfiguration.getAuthenticationManager();
-    }
-
-    @Bean
-    public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of(
-                "http://localhost:5173",  // Customer app
-                "http://localhost:5174",  // Admin app
-                "http://localhost:3000",  // Gateway
-                "http://localhost:8080"   // Backend direct (dev)
-        ));
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(Arrays.asList(
-                "Authorization",
-                "Content-Type",
-                "X-Requested-With",
-                "Accept",
-                "Origin",
-                "Access-Control-Request-Method",
-                "Access-Control-Request-Headers"
-        ));
-        configuration.setExposedHeaders(Arrays.asList(
-                "Access-Control-Allow-Origin",
-                "Access-Control-Allow-Credentials"
-        ));
-        configuration.setAllowCredentials(true);
-        configuration.setMaxAge(3600L);
-
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
-        return source;
     }
 }

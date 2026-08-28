@@ -1,0 +1,1 @@
+db.inventories.find({quantityOnHand: {$lte: 5}}, {productId:1, quantityOnHand:1, lowStockThreshold:1}).limit(3).pretty()

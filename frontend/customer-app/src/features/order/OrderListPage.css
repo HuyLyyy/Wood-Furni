@@ -1,0 +1,178 @@
+.order-list-page { padding: 24px 16px 64px; }
+
+.order-list-page__header {
+    margin-bottom: 16px;
+}
+.order-list-page__header h1 { margin: 0; font-size: 24px; }
+.order-list-page__count { margin: 4px 0 0; color: var(--color-text-muted); font-size: 14px; }
+
+.order-list-page__filters {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--color-border);
+}
+.order-list-page__filter {
+    padding: 6px 14px;
+    border: 1px solid var(--color-border);
+    border-radius: 999px;
+    background: #fff;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.order-list-page__filter:hover { background: var(--color-bg-soft); }
+.order-list-page__filter.is-active {
+    background: var(--color-primary);
+    color: #fff;
+    border-color: var(--color-primary);
+}
+
+.order-list-page__loading,
+.order-list-page__error {
+    padding: 48px 16px;
+    text-align: center;
+    color: var(--color-text-muted);
+}
+.order-list-page__error-hint { font-size: 11px; opacity: 0.7; margin-top: 4px; }
+.order-list-page__empty {
+    padding: 64px 16px;
+    text-align: center;
+    background: var(--color-bg-soft);
+    border-radius: var(--radius-lg);
+}
+.order-list-page__empty p { margin: 0 0 16px; color: var(--color-text-muted); }
+.order-list-page__cta {
+    display: inline-block;
+    padding: 10px 20px;
+    background: var(--color-primary);
+    color: #fff;
+    border-radius: var(--radius-md);
+    text-decoration: none;
+    font-weight: 600;
+}
+.order-list-page__cta:hover { background: var(--color-primary-dark); color: #fff; }
+
+/* ===== Order list ===== */
+.order-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.order-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: #fff;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    text-decoration: none;
+    color: var(--color-text);
+    transition: border-color 0.12s, box-shadow 0.12s;
+}
+.order-row:hover {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-sm);
+    text-decoration: none;
+}
+
+.order-row__head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 160px;
+}
+.order-row__number {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.order-row__body {
+    flex: 1;
+    min-width: 0;
+}
+.order-row__items {
+    margin: 0 0 4px;
+    font-size: 13px;
+    color: var(--color-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+}
+.order-row__meta {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    color: var(--color-text-muted);
+}
+.order-row__total {
+    font-weight: 700;
+    color: var(--color-primary);
+    font-size: 14px;
+}
+
+.order-row__arrow {
+    color: var(--color-text-muted);
+    font-size: 18px;
+}
+
+@media (max-width: 640px) {
+    .order-row {
+        flex-wrap: wrap;
+    }
+    .order-row__head { min-width: 0; flex: 1; }
+    .order-row__body { flex: 1 0 100%; }
+    .order-row__arrow { display: none; }
+}
+
+/* ===== Status badges ===== */
+.order-status {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+}
+.order-status--pending     { background: #fef3c7; color: #92400e; }
+.order-status--confirmed   { background: #dbeafe; color: #1e3a8a; }
+.order-status--processing  { background: #e0e7ff; color: #3730a3; }
+.order-status--shipping    { background: #cffafe; color: #155e75; }
+.order-status--delivered   { background: #dcfce7; color: #166534; }
+.order-status--cancelled   { background: #fee2e2; color: #991b1b; }
+.order-status--returned    { background: #f3f4f6; color: #374151; }
+
+.order-list-page__pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    margin-top: 24px;
+}
+.order-list-page__pagination button {
+    padding: 8px 16px;
+    border: 1px solid var(--color-border);
+    background: #fff;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 14px;
+}
+.order-list-page__pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
+.order-list-page__pagination button:hover:not(:disabled) {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+.order-list-page__pagination span { color: var(--color-text-muted); font-size: 14px; }

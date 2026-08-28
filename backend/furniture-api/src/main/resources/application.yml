@@ -12,7 +12,7 @@ spring:
       # MongoDB URI - override with MONGODB_URI environment variable
       # Default: mongodb://localhost:27017/woodfurni
       uri: ${MONGODB_URI:mongodb://localhost:27017/woodfurni}
-      auto-index-creation: true
+      auto-index-creation: false
       # Database name (extracted from URI if not specified)
       database: ${MONGODB_DATABASE:woodfurni}
 
@@ -21,6 +21,9 @@ server:
   port: ${SERVER_PORT:8080}
   servlet:
     context-path: /api/v1
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 20MB
   error:
     include-message: always
     include-binding-errors: always
@@ -72,3 +75,43 @@ management:
       show-details: when-authorized
       probes:
         enabled: true
+
+# =============================================================================
+# Node Gateway client (realtime notifications)
+# =============================================================================
+# Spring Boot forwards domain events (order.created, order.status.updated,
+# inventory.low_stock) to the Node.js gateway via these HTTP endpoints.
+gateway:
+  base-url: ${GATEWAY_BASE_URL:http://localhost:3000}
+  internal-secret: ${GATEWAY_INTERNAL_SECRET:internal-woodfurni-shared-secret-change-me}
+  enabled: ${GATEWAY_ENABLED:true}
+  timeout:
+    connect-ms: 1500
+    read-ms: 2000
+
+# =============================================================================
+# File Upload Configuration
+# =============================================================================
+storage:
+  upload-dir: ${STORAGE_UPLOAD_DIR:/app/uploads}
+  max-file-mb: ${STORAGE_MAX_FILE_MB:5}
+
+# =============================================================================
+# Shipping Configuration
+# =============================================================================
+#
+# Fee formula (see ShippingService.calculateFee):
+#
+#   distanceKm <= base-radius-km  →  fee = base-fee
+#   distanceKm >  base-radius-km  →  fee = base-fee
+#                                          + ceil(distanceKm - base-radius-km) * surcharge-per-km
+#
+# For cities OTHER THAN "Hồ Chí Minh", the distance table is not consulted;
+# out-of-province-distance-km is used as the fallback distance.
+#
+shipping:
+  base-fee: ${SHIPPING_BASE_FEE:100000}
+  base-radius-km: ${SHIPPING_BASE_RADIUS_KM:10}
+  surcharge-per-km: ${SHIPPING_SURCHARGE_PER_KM:6000}
+  out-of-province-distance-km: ${SHIPPING_OUT_OF_PROVINCE_DISTANCE_KM:60}
+

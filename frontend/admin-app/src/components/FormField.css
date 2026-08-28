@@ -1,0 +1,42 @@
+.form-field { margin-bottom: 14px; }
+.form-field__label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text);
+}
+.form-field__required { color: var(--color-danger); margin-left: 2px; }
+.form-field__hint  { margin: 4px 0 0; font-size: 12px; color: var(--color-text-muted); }
+.form-field__error { margin: 4px 0 0; font-size: 12px; color: var(--color-danger); }
+
+/* Inputs inside form fields */
+.form-field input,
+.form-field select,
+.form-field textarea {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: #fff;
+    font-size: 14px;
+    color: var(--color-text);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.form-field textarea {
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+}
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(107, 79, 42, 0.08);
+}
+.form-field--error input,
+.form-field--error select,
+.form-field--error textarea {
+    border-color: var(--color-danger);
+}

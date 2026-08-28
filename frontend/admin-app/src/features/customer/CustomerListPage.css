@@ -1,0 +1,106 @@
+.customer-list-page__error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    padding: 12px 16px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.customer-row__name {
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.customer-row__email {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.spent-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 10px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    border-radius: 999px;
+    font-weight: 500;
+    font-size: 13px;
+}
+
+.count-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 24px;
+    padding: 0 8px;
+    border-radius: 6px;
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.status-pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-pill--ACTIVE   { background: #dcfce7; color: #166534; }
+.status-pill--DISABLED { background: #fee2e2; color: #991b1b; }
+
+.customer-drawer__empty {
+    color: #94a3b8;
+    font-style: italic;
+    padding: 12px 0;
+}
+
+.customer-drawer__row {
+    display: grid;
+    grid-template-columns: 100px 1fr;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.customer-drawer__row:last-child {
+    border-bottom: none;
+}
+
+.customer-drawer__label {
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.customer-drawer__value {
+    color: #0f172a;
+    font-size: 14px;
+}
+
+.customer-detail__orders {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+}
+
+.customer-detail__orders th,
+.customer-detail__orders td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    text-align: left;
+    font-size: 13px;
+}
+
+.customer-detail__orders th {
+    text-transform: uppercase;
+    font-size: 11px;
+    color: #64748b;
+    font-weight: 600;
+}

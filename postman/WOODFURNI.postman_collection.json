@@ -1,0 +1,1103 @@
+{
+  "info": {
+    "_postman_id": "woodfurni-collection-2026",
+    "name": "WOODFURNI — Furniture E-Commerce API",
+    "description": "Complete Postman collection for WOODFURNI backend (Spring Boot, base path `/api/v1`).\n\n## Quick start\n1. Import collection này vào Postman.\n2. Mở **Environments** → tạo environment mới tên `WOODFURNI Local` (hoặc dùng Globals) với 2 biến:\n   - `baseUrl` = `http://localhost:8080/api/v1` (nếu gọi thẳng backend)\n   - HOẶC `http://localhost:3000/api/v1` (nếu gọi qua Node Gateway, khuyến nghị)\n   - `accessToken` (sẽ tự set sau khi login — bạn không cần điền thủ công)\n   - `refreshToken` (tương tự)\n3. Chạy request **Auth → Login** trong folder `01 — Auth` với một trong các tài khoản demo (xem `Database/sample-data/README.md`).\n4. Script Tests trong login sẽ tự ghi `accessToken` + `refreshToken` vào environment.\n5. Mọi request khác dùng biến `{{baseUrl}}` và header `Authorization: Bearer {{accessToken}}` — Postman tự chèn.\n\n## Tài khoản demo (sau khi chạy seed)\n| Role      | Email                    | Password       |\n|-----------|--------------------------|----------------|\n| ADMIN     | admin@woodfurni.vn       | Admin@123      |\n| SALES     | sales@woodfurni.vn       | Sales@123      |\n| WAREHOUSE | warehouse@woodfurni.vn   | Warehouse@123  |\n| CONTENT   | content@woodfurni.vn     | Content@123    |\n| CUSTOMER  | customer1@woodfurni.vn   | Customer1@123  |\n| CUSTOMER  | customer2@woodfurni.vn   | Customer2@123  |\n\n## Cấu trúc 10 modules\nM01 Auth · M02 Products · M03 Categories/Materials · M04 Search&Filter · M05 Cart · M06 Orders · M07 Inventory · M08 Promotions · M09 Reviews · M10 Admin Dashboard",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      { "key": "token", "value": "{{accessToken}}", "type": "string" }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/api/v1",
+      "type": "string",
+      "description": "Base URL của backend. Nếu chạy qua Node Gateway dùng http://localhost:3000/api/v1"
+    },
+    {
+      "key": "accessToken",
+      "value": "",
+      "type": "string",
+      "description": "JWT access token — tự set sau khi login"
+    },
+    {
+      "key": "refreshToken",
+      "value": "",
+      "type": "string",
+      "description": "JWT refresh token — tự set sau khi login"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string",
+      "description": "User ID hiện tại (tùy chọn, dùng cho test)"
+    },
+    {
+      "key": "productId",
+      "value": "",
+      "type": "string",
+      "description": "ID sản phẩm cuối (auto-fill sau các request)"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string",
+      "description": "ID đơn hàng cuối (auto-fill sau checkout)"
+    },
+    {
+      "key": "addressId",
+      "value": "addr-c1-default",
+      "type": "string",
+      "description": "Customer1 — địa chỉ mặc định (id trong seed data)"
+    },
+    {
+      "key": "categoryId",
+      "value": "",
+      "type": "string",
+      "description": "ID category (auto-fill sau GET /categories)"
+    },
+    {
+      "key": "materialId",
+      "value": "",
+      "type": "string",
+      "description": "ID material (auto-fill sau GET /materials)"
+    },
+    {
+      "key": "promotionId",
+      "value": "",
+      "type": "string",
+      "description": "ID promotion (auto-fill sau GET /promotions)"
+    }
+  ],
+  "item": [
+    {
+      "name": "00 — Health Check",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/../actuator/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["..", "actuator", "health"]
+            },
+            "description": "Spring Boot Actuator health endpoint. Public, không cần auth."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 — Auth (M01)",
+      "item": [
+        {
+          "name": "Register Customer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"NewUser@123\",\n  \"fullName\": \"Nguyễn Văn Mới\",\n  \"phone\": \"0912345678\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] },
+            "description": "POST /api/v1/auth/register — Tạo tài khoản CUSTOMER mới. Public, không cần token. Trả về accessToken + refreshToken ngay."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.collectionVariables.set('userId', json.data.user.id);",
+                  "  console.log('Registered userId =', json.data.user.id);",
+                  "}",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has accessToken', () => pm.expect(pm.collectionVariables.get('accessToken')).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login — Customer",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"customer1@woodfurni.vn\",\n  \"password\": \"Customer1@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "description": "POST /api/v1/auth/login — Đăng nhập CUSTOMER. Script test sẽ tự set accessToken/refreshToken vào env."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.collectionVariables.set('userId', json.data.user.id);",
+                  "  console.log('Logged in userId =', json.data.user.id);",
+                  "}",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Token persisted', () => pm.expect(pm.collectionVariables.get('accessToken')).to.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login — Admin",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@woodfurni.vn\",\n  \"password\": \"Admin@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "description": "POST /api/v1/auth/login — Đăng nhập ADMIN. Dùng để test các endpoint ADMIN."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "  pm.collectionVariables.set('userId', json.data.user.id);",
+                  "}",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login — Sales",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"sales@woodfurni.vn\",\n  \"password\": \"Sales@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "description": "POST /api/v1/auth/login — SALES role."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "}",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login — Warehouse",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"warehouse@woodfurni.vn\",\n  \"password\": \"Warehouse@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "description": "POST /api/v1/auth/login — WAREHOUSE role."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "}",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login — Content",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"content@woodfurni.vn\",\n  \"password\": \"Content@123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "description": "POST /api/v1/auth/login — CONTENT role."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "}",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/refresh", "host": ["{{baseUrl}}"], "path": ["auth", "refresh"] },
+            "description": "POST /api/v1/auth/refresh — Cấp lại accessToken mới từ refreshToken hợp lệ."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "  pm.collectionVariables.set('accessToken', json.data.accessToken);",
+                  "  pm.collectionVariables.set('refreshToken', json.data.refreshToken);",
+                  "}",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Current User (/auth/me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"] },
+            "description": "GET /api/v1/auth/me — Lấy thông tin user hiện tại từ JWT trong header. Yêu cầu auth."
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/auth/logout", "host": ["{{baseUrl}}"], "path": ["auth", "logout"] },
+            "description": "POST /api/v1/auth/logout — Revoke refresh token. Sau khi logout, FE tự xoá token."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset('accessToken');",
+                  "pm.collectionVariables.unset('refreshToken');",
+                  "pm.collectionVariables.unset('userId');",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 — Categories (M03)",
+      "item": [
+        {
+          "name": "List Categories (Tree)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/categories", "host": ["{{baseUrl}}"], "path": ["categories"] },
+            "description": "GET /api/v1/categories — Public. Trả cây phân cấp (parent → children)."
+          }
+        },
+        {
+          "name": "List Categories (Flat)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/categories/flat", "host": ["{{baseUrl}}"], "path": ["categories", "flat"] },
+            "description": "GET /api/v1/categories/flat — Public. Trả danh sách phẳng (không phân cấp)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data && json.data.length > 0) {",
+                  "  pm.collectionVariables.set('categoryId', json.data[0].id);",
+                  "  console.log('First categoryId =', json.data[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Category by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/categories/{{categoryId}}", "host": ["{{baseUrl}}"], "path": ["categories", "{{categoryId}}"] },
+            "description": "GET /api/v1/categories/{id} — Public."
+          }
+        },
+        {
+          "name": "Create Category (CONTENT/ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Patio\",\n  \"slug\": \"patio\",\n  \"environment\": \"OUTDOOR\",\n  \"parentId\": null,\n  \"order\": 6,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/categories", "host": ["{{baseUrl}}"], "path": ["categories"] },
+            "description": "POST /api/v1/categories — Role CONTENT hoặc ADMIN."
+          }
+        },
+        {
+          "name": "Update Category (CONTENT/ADMIN)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Garden & Patio\",\n  \"slug\": \"garden-patio\",\n  \"environment\": \"OUTDOOR\",\n  \"parentId\": null,\n  \"order\": 5,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/categories/{{categoryId}}", "host": ["{{baseUrl}}"], "path": ["categories", "{{categoryId}}"] },
+            "description": "PUT /api/v1/categories/{id} — Role CONTENT hoặc ADMIN."
+          }
+        },
+        {
+          "name": "Delete Category (ADMIN)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/categories/{{categoryId}}", "host": ["{{baseUrl}}"], "path": ["categories", "{{categoryId}}"] },
+            "description": "DELETE /api/v1/categories/{id} — Role ADMIN. Sẽ fail nếu còn category con."
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 — Materials (M03)",
+      "item": [
+        {
+          "name": "List Materials",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/materials", "host": ["{{baseUrl}}"], "path": ["materials"] },
+            "description": "GET /api/v1/materials — Public. Trả tất cả vật liệu.",
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "const json = pm.response.json();",
+                    "if (json.success && json.data && json.data.length > 0) {",
+                    "  pm.collectionVariables.set('materialId', json.data[0].id);",
+                    "  console.log('First materialId =', json.data[0].id);",
+                    "}"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "Search Materials",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/materials/search?keyword=oak",
+              "host": ["{{baseUrl}}"],
+              "path": ["materials", "search"],
+              "query": [{ "key": "keyword", "value": "oak" }]
+            },
+            "description": "GET /api/v1/materials/search?keyword=oak — Tìm theo tên (case-insensitive)."
+          }
+        },
+        {
+          "name": "Get Material by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/materials/{{materialId}}", "host": ["{{baseUrl}}"], "path": ["materials", "{{materialId}}"] },
+            "description": "GET /api/v1/materials/{id} — Public."
+          }
+        },
+        {
+          "name": "Create Material (CONTENT/ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bamboo\",\n  \"code\": \"BAMBOO\",\n  \"description\": \"Tre ép công nghiệp — chịu ẩm tốt, thân thiện môi trường.\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/materials", "host": ["{{baseUrl}}"], "path": ["materials"] },
+            "description": "POST /api/v1/materials — Role CONTENT hoặc ADMIN."
+          }
+        },
+        {
+          "name": "Update Material (CONTENT/ADMIN)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Bamboo (Updated)\",\n  \"code\": \"BAMBOO\",\n  \"description\": \"Updated description.\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/materials/{{materialId}}", "host": ["{{baseUrl}}"], "path": ["materials", "{{materialId}}"] },
+            "description": "PUT /api/v1/materials/{id} — Role CONTENT hoặc ADMIN."
+          }
+        },
+        {
+          "name": "Delete Material (CONTENT/ADMIN)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/materials/{{materialId}}", "host": ["{{baseUrl}}"], "path": ["materials", "{{materialId}}"] },
+            "description": "DELETE /api/v1/materials/{id} — Role CONTENT hoặc ADMIN."
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 — Products (M02 / M04)",
+      "item": [
+        {
+          "name": "Search & Filter Products (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products?keyword=sofa&environment=INDOOR&minPrice=10000000&maxPrice=50000000&sort=-createdAt&page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["products"],
+              "query": [
+                { "key": "keyword", "value": "sofa", "disabled": true },
+                { "key": "environment", "value": "INDOOR", "disabled": true },
+                { "key": "minPrice", "value": "10000000", "disabled": true },
+                { "key": "maxPrice", "value": "50000000", "disabled": true },
+                { "key": "sort", "value": "-createdAt", "disabled": true },
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            },
+            "description": "GET /api/v1/products — Public search & filter. Hỗ trợ: keyword, category, environment, room, woodType, minPrice, maxPrice, sort, page, size. Mặc định CUSTOMER chỉ thấy status=ACTIVE."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data && json.data.items && json.data.items.length > 0) {",
+                  "  pm.collectionVariables.set('productId', json.data.items[0].id);",
+                  "  console.log('First productId =', json.data.items[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter: Outdoor + Teak + 5tr-10tr",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products?environment=OUTDOOR&woodType=TEAK&minPrice=5000000&maxPrice=10000000",
+              "host": ["{{baseUrl}}"],
+              "path": ["products"],
+              "query": [
+                { "key": "environment", "value": "OUTDOOR" },
+                { "key": "woodType", "value": "TEAK" },
+                { "key": "minPrice", "value": "5000000" },
+                { "key": "maxPrice", "value": "10000000" }
+              ]
+            },
+            "description": "GET /api/v1/products — Use case kinh điển: \"Bàn Teak ngoài trời, dưới 1.5m, 5-10 triệu\" (filter ở đây bỏ khoảng width)."
+          }
+        },
+        {
+          "name": "Get Product by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["products", "{{productId}}"] },
+            "description": "GET /api/v1/products/{id} — Public."
+          }
+        },
+        {
+          "name": "Get Product by Slug",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/products/slug/sofa-go-soi-3-cho", "host": ["{{baseUrl}}"], "path": ["products", "slug", "sofa-go-soi-3-cho"] },
+            "description": "GET /api/v1/products/slug/{slug} — Public. Dùng cho SEO-friendly URL."
+          }
+        },
+        {
+          "name": "Create Product (CONTENT/ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"TEST001\",\n  \"name\": \"Bàn Thử Nghiệm\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"materialIds\": [\"{{materialId}}\"],\n  \"environment\": \"INDOOR\",\n  \"room\": \"OFFICE\",\n  \"dimensions\": { \"width\": 100, \"height\": 75, \"depth\": 60 },\n  \"weight\": 20,\n  \"color\": \"Nâu\",\n  \"finish\": \"PU\",\n  \"price\": 1500000,\n  \"images\": [\"https://placehold.co/600x400?text=Test\"],\n  \"description\": \"Sản phẩm tạo bằng Postman\",\n  \"warranty\": \"12 tháng\",\n  \"status\": \"DRAFT\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/products", "host": ["{{baseUrl}}"], "path": ["products"] },
+            "description": "POST /api/v1/products — Role CONTENT hoặc ADMIN. Mặc định status=DRAFT. Cần có ít nhất 1 image trước khi PATCH status=ACTIVE."
+          }
+        },
+        {
+          "name": "Update Product (CONTENT/ADMIN)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sku\": \"TEST001\",\n  \"name\": \"Bàn Thử Nghiệm (Updated)\",\n  \"categoryId\": \"{{categoryId}}\",\n  \"materialIds\": [\"{{materialId}}\"],\n  \"environment\": \"INDOOR\",\n  \"room\": \"OFFICE\",\n  \"dimensions\": { \"width\": 100, \"height\": 75, \"depth\": 60 },\n  \"weight\": 20,\n  \"price\": 1800000,\n  \"images\": [\"https://placehold.co/600x400?text=Test\"],\n  \"description\": \"Updated bằng Postman\",\n  \"warranty\": \"12 tháng\",\n  \"status\": \"DRAFT\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["products", "{{productId}}"] },
+            "description": "PUT /api/v1/products/{id} — Role CONTENT hoặc ADMIN."
+          }
+        },
+        {
+          "name": "Publish Product — PATCH status (CONTENT/ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/products/{{productId}}/status", "host": ["{{baseUrl}}"], "path": ["products", "{{productId}}", "status"] },
+            "description": "PATCH /api/v1/products/{id}/status — Role CONTENT/ADMIN. Khi chuyển sang ACTIVE, BẮT BUỘC phải có ít nhất 1 image."
+          }
+        },
+        {
+          "name": "Delete Product (ADMIN)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["products", "{{productId}}"] },
+            "description": "DELETE /api/v1/products/{id} — ADMIN only. Soft delete (status=DISCONTINUED)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 — Cart (M05)",
+      "item": [
+        {
+          "name": "Get Current Cart",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/cart", "host": ["{{baseUrl}}"], "path": ["cart"] },
+            "description": "GET /api/v1/cart — role CUSTOMER. Trả giỏ hàng hiện tại (tự tạo nếu chưa có)."
+          }
+        },
+        {
+          "name": "Add Item to Cart",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"quantity\": 2\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/cart/items", "host": ["{{baseUrl}}"], "path": ["cart", "items"] },
+            "description": "POST /api/v1/cart/items — role CUSTOMER. Validate product ACTIVE + stock. Cộng dồn nếu productId đã có trong cart."
+          }
+        },
+        {
+          "name": "Update Item Quantity",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 1\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/cart/items/{{productId}}", "host": ["{{baseUrl}}"], "path": ["cart", "items", "{{productId}}"] },
+            "description": "PUT /api/v1/cart/items/{productId} — role CUSTOMER. quantity=0 sẽ xoá item khỏi cart."
+          }
+        },
+        {
+          "name": "Remove Item from Cart",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/cart/items/{{productId}}", "host": ["{{baseUrl}}"], "path": ["cart", "items", "{{productId}}"] },
+            "description": "DELETE /api/v1/cart/items/{productId} — role CUSTOMER."
+          }
+        },
+        {
+          "name": "Clear Cart",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/cart", "host": ["{{baseUrl}}"], "path": ["cart"] },
+            "description": "DELETE /api/v1/cart — role CUSTOMER. Xoá toàn bộ items."
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 — Orders (M06)",
+      "item": [
+        {
+          "name": "Checkout — Create Order from Cart",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"addressId\": \"{{addressId}}\",\n  \"promotionCode\": \"WELCOME10\",\n  \"paymentMethod\": \"COD\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/orders/checkout", "host": ["{{baseUrl}}"], "path": ["orders", "checkout"] },
+            "description": "POST /api/v1/orders/checkout — role CUSTOMER. Reserve inventory → validate promotion → tạo Order + Payment → clear cart. Snapshot price/address tại thời điểm checkout.",
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "const json = pm.response.json();",
+                    "if (json.success && json.data) {",
+                    "  pm.collectionVariables.set('orderId', json.data.id);",
+                    "  console.log('orderId =', json.data.id, 'orderNumber =', json.data.orderNumber);",
+                    "}"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "List My Orders (Customer)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders?page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            },
+            "description": "GET /api/v1/orders — CUSTOMER thấy đơn của mình. SALES/ADMIN thấy tất cả (filter status, customerId)."
+          }
+        },
+        {
+          "name": "List Orders by Status (SALES/ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders?status=DELIVERED&page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"],
+              "query": [
+                { "key": "status", "value": "DELIVERED" },
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            },
+            "description": "GET /api/v1/orders?status=DELIVERED — Lọc theo trạng thái. SALES/ADMIN."
+          }
+        },
+        {
+          "name": "List Orders by Customer (SALES/ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders?customerId={{userId}}&page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"],
+              "query": [
+                { "key": "customerId", "value": "{{userId}}" },
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            },
+            "description": "GET /api/v1/orders?customerId=... — SALES/ADMIN xem đơn của 1 khách cụ thể."
+          }
+        },
+        {
+          "name": "Get Order by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}"] },
+            "description": "GET /api/v1/orders/{id} — Chủ đơn hoặc SALES/ADMIN."
+          }
+        },
+        {
+          "name": "Update Order Status (SALES/WAREHOUSE/ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"CONFIRMED\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/status", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "status"] },
+            "description": "PATCH /api/v1/orders/{id}/status — SALES/WAREHOUSE/ADMIN. Theo state machine: PENDING→CONFIRMED→PROCESSING→SHIPPING→DELIVERED. CANCELLED hoàn reserve, DELIVERED commit thật."
+          }
+        },
+        {
+          "name": "Cancel Order",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/orders/{{orderId}}/cancel", "host": ["{{baseUrl}}"], "path": ["orders", "{{orderId}}", "cancel"] },
+            "description": "POST /api/v1/orders/{id}/cancel — CUSTOMER (đơn PENDING/CONFIRMED) hoặc ADMIN (mọi đơn). Hoàn tồn kho."
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 — Inventory (M07)",
+      "item": [
+        {
+          "name": "List Inventory (WAREHOUSE/ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventory?page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["inventory"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            },
+            "description": "GET /api/v1/inventory — WAREHOUSE/ADMIN. Trả tồn kho kèm tên/SKU sản phẩm."
+          }
+        },
+        {
+          "name": "List Low-Stock Items (WAREHOUSE/ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/inventory/low-stock?page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["inventory", "low-stock"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            },
+            "description": "GET /api/v1/inventory/low-stock — quantityOnHand <= lowStockThreshold. Sau khi seed, OUT001 (3) và EX005 (4) nên xuất hiện."
+          }
+        },
+        {
+          "name": "Get Inventory by Product ID (WAREHOUSE/ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/inventory/{{productId}}", "host": ["{{baseUrl}}"], "path": ["inventory", "{{productId}}"] },
+            "description": "GET /api/v1/inventory/{productId} — Lấy tồn kho của 1 sản phẩm."
+          }
+        },
+        {
+          "name": "Adjust Inventory (WAREHOUSE/ADMIN)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delta\": 10,\n  \"reason\": \"Nhập hàng lô mới từ nhà cung cấp\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/inventory/{{productId}}/adjust", "host": ["{{baseUrl}}"], "path": ["inventory", "{{productId}}", "adjust"] },
+            "description": "PATCH /api/v1/inventory/{productId}/adjust — delta>0 nhập, delta<0 xuất. Không cho âm."
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 — Promotions (M08)",
+      "item": [
+        {
+          "name": "List Promotions (ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/promotions", "host": ["{{baseUrl}}"], "path": ["promotions"] },
+            "description": "GET /api/v1/promotions — ADMIN only.",
+            "event": [
+              {
+                "listen": "test",
+                "script": {
+                  "type": "text/javascript",
+                  "exec": [
+                    "const json = pm.response.json();",
+                    "if (json.success && json.data && json.data.length > 0) {",
+                    "  pm.collectionVariables.set('promotionId', json.data[0].id);",
+                    "  console.log('First promotionId =', json.data[0].id);",
+                    "}"
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get Promotion by ID (ADMIN)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/promotions/{{promotionId}}", "host": ["{{baseUrl}}"], "path": ["promotions", "{{promotionId}}"] },
+            "description": "GET /api/v1/promotions/{id} — ADMIN only."
+          }
+        },
+        {
+          "name": "Validate Promotion Code (CUSTOMER)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"WELCOME10\",\n  \"cartTotal\": 10000000\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/promotions/validate", "host": ["{{baseUrl}}"], "path": ["promotions", "validate"] },
+            "description": "POST /api/v1/promotions/validate — CUSTOMER. Tính số tiền giảm dự kiến. KHÔNG tự tăng usedCount (chỉ tăng khi order thành công)."
+          }
+        },
+        {
+          "name": "Create Promotion (ADMIN)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"VIP20\",\n  \"type\": \"PERCENTAGE\",\n  \"value\": 20,\n  \"minOrderAmount\": 10000000,\n  \"maxDiscountAmount\": 5000000,\n  \"startDate\": \"2026-08-01T00:00:00Z\",\n  \"endDate\": \"2026-12-31T23:59:59Z\",\n  \"usageLimit\": 50,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/promotions", "host": ["{{baseUrl}}"], "path": ["promotions"] },
+            "description": "POST /api/v1/promotions — ADMIN only."
+          }
+        },
+        {
+          "name": "Update Promotion (ADMIN)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"VIP20\",\n  \"type\": \"PERCENTAGE\",\n  \"value\": 25,\n  \"minOrderAmount\": 10000000,\n  \"maxDiscountAmount\": 5000000,\n  \"startDate\": \"2026-08-01T00:00:00Z\",\n  \"endDate\": \"2026-12-31T23:59:59Z\",\n  \"usageLimit\": 50,\n  \"status\": \"ACTIVE\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/promotions/{{promotionId}}", "host": ["{{baseUrl}}"], "path": ["promotions", "{{promotionId}}"] },
+            "description": "PUT /api/v1/promotions/{id} — ADMIN only."
+          }
+        },
+        {
+          "name": "Delete Promotion (ADMIN)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/promotions/{{promotionId}}", "host": ["{{baseUrl}}"], "path": ["promotions", "{{promotionId}}"] },
+            "description": "DELETE /api/v1/promotions/{id} — ADMIN only."
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 — Reviews (M09)",
+      "item": [
+        {
+          "name": "List Reviews for Product (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products/{{productId}}/reviews?page=0&size=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "{{productId}}", "reviews"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "10" }
+              ]
+            },
+            "description": "GET /api/v1/products/{productId}/reviews — Public. Chỉ trả review VISIBLE/PUBLISHED."
+          }
+        },
+        {
+          "name": "Create Review (CUSTOMER)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{orderId}}\",\n  \"rating\": 5,\n  \"comment\": \"Sản phẩm rất đẹp, đúng mô tả, giao hàng nhanh!\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/products/{{productId}}/reviews", "host": ["{{baseUrl}}"], "path": ["products", "{{productId}}", "reviews"] },
+            "description": "POST /api/v1/products/{productId}/reviews — CUSTOMER. Yêu cầu order DELIVERED chứa sản phẩm này. 1 user/product/order duy nhất."
+          }
+        },
+        {
+          "name": "Update Review Status (ADMIN/CONTENT)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"HIDDEN\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/reviews/{reviewId}/status", "host": ["{{baseUrl}}"], "path": ["reviews", "{reviewId}", "status"] },
+            "description": "PATCH /api/v1/reviews/{id}/status — ADMIN/CONTENT. Ẩn review vi phạm. Lưu ý: thay `{reviewId}` bằng id thật từ response list review."
+          }
+        },
+        {
+          "name": "Admin: List All Reviews",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reviews?page=0&size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "reviews"],
+              "query": [
+                { "key": "page", "value": "0" },
+                { "key": "size", "value": "20" }
+              ]
+            },
+            "description": "GET /api/v1/admin/reviews — ADMIN/CONTENT. Trả review kèm productName, userFullName, orderNumber. Filter: rating, status, productId."
+          }
+        },
+        {
+          "name": "Admin: Filter Reviews by Rating",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/reviews?rating=5&status=PUBLISHED",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "reviews"],
+              "query": [
+                { "key": "rating", "value": "5" },
+                { "key": "status", "value": "PUBLISHED" }
+              ]
+            },
+            "description": "GET /api/v1/admin/reviews?rating=5&status=PUBLISHED — Lọc review 5 sao, đang hiển thị."
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 — Admin Dashboard (M10)",
+      "item": [
+        {
+          "name": "Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/admin/dashboard/summary", "host": ["{{baseUrl}}"], "path": ["admin", "dashboard", "summary"] },
+            "description": "GET /api/v1/admin/dashboard/summary — ADMIN only. Trả revenueToday, ordersToday, newCustomersToday, lowStockCount."
+          }
+        },
+        {
+          "name": "Monthly Revenue (last 12 months)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/dashboard/revenue?range=month",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "dashboard", "revenue"],
+              "query": [{ "key": "range", "value": "month" }]
+            },
+            "description": "GET /api/v1/admin/dashboard/revenue?range=month — ADMIN only. Aggregate revenue 12 tháng gần nhất."
+          }
+        },
+        {
+          "name": "Orders by Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/admin/dashboard/orders-by-status", "host": ["{{baseUrl}}"], "path": ["admin", "dashboard", "orders-by-status"] },
+            "description": "GET /api/v1/admin/dashboard/orders-by-status — ADMIN only."
+          }
+        },
+        {
+          "name": "Top Products (limit 10)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/dashboard/top-products?limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "dashboard", "top-products"],
+              "query": [{ "key": "limit", "value": "10" }]
+            },
+            "description": "GET /api/v1/admin/dashboard/top-products?limit=10 — ADMIN only. Aggregate Order.items theo productId."
+          }
+        },
+        {
+          "name": "Category Breakdown",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/admin/dashboard/category-breakdown", "host": ["{{baseUrl}}"], "path": ["admin", "dashboard", "category-breakdown"] },
+            "description": "GET /api/v1/admin/dashboard/category-breakdown — ADMIN only. Doanh thu theo Indoor/Outdoor + category."
+          }
+        }
+      ]
+    }
+  ]
+}

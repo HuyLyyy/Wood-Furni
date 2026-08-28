@@ -1,0 +1,113 @@
+/* =============================================================================
+ * WOODFURNI Customer App — global styles
+ * Reset + base + tokens. Keep this file small; per-component CSS lives next
+ * to each component (e.g. AuthForm.css) — this file only has design tokens
+ * and reset that should NOT be duplicated.
+ * ========================================================================== */
+
+:root {
+    /* ============ Surfaces ============ */
+    --color-bg: #fbf9f6;              /* warm off-white page bg */
+    --color-bg-soft: #f3ede4;         /* sand tint for sections */
+    --color-bg-elevated: #ffffff;     /* cards, modals */
+
+    /* ============ Text ============ */
+    --color-text: #2a1f17;            /* warm near-black */
+    --color-text-muted: #7a6b5d;      /* warm muted brown */
+    --color-text-on-dark: #fdfaf5;
+
+    /* ============ Brand: Wood (primary) ============ */
+    --color-primary: #6b4a2b;         /* refined wood-brown */
+    --color-primary-dark: #4a3220;    /* deep walnut */
+    --color-primary-light: #8c6a44;
+    --color-primary-50: #f5ede2;      /* tint of primary */
+
+    /* ============ Accent: Terracotta (CTA / highlight) ============ */
+    --color-accent: #c2573a;          /* terracotta — primary CTA */
+    --color-accent-dark: #9e4027;
+    --color-accent-light: #e07a5f;
+    --color-accent-50: #fbe9e2;
+
+    /* ============ Accent: Brass (secondary highlight / badges) ============ */
+    --color-brass: #b88947;           /* brass/gold — used for badges & subtle hovers */
+    --color-brass-soft: #d4ad6b;
+
+    /* ============ Functional ============ */
+    --color-border: #e7ddd0;          /* warm border */
+    --color-border-strong: #c9b89e;
+    --color-danger: #c0392b;
+    --color-success: #2f7a4a;
+    --color-warning: #d98c1a;
+
+    /* ============ Radii ============ */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+    --radius-xl: 24px;
+    --radius-pill: 999px;
+
+    /* ============ Shadows (warmer tones) ============ */
+    --shadow-sm: 0 1px 2px rgba(74, 50, 32, 0.06);
+    --shadow-md: 0 6px 18px rgba(74, 50, 32, 0.08);
+    --shadow-lg: 0 16px 40px rgba(74, 50, 32, 0.12);
+    --shadow-xl: 0 24px 60px rgba(74, 50, 32, 0.18);
+
+    /* ============ Typography ============ */
+    --font-base: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-display: 'Playfair Display', 'Inter', Georgia, serif;
+    --container: 1200px;
+
+    /* ============ Transitions ============ */
+    --transition-fast: 0.15s ease;
+    --transition-base: 0.25s ease;
+    --transition-slow: 0.4s ease;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+}
+
+body {
+    font-family: var(--font-base);
+    color: var(--color-text);
+    background: var(--color-bg);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    color: var(--color-text);
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+}
+
+a {
+    color: var(--color-primary);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+a:hover { color: var(--color-accent); }
+
+button {
+    font-family: inherit;
+    cursor: pointer;
+}
+
+input, select, textarea {
+    font-family: inherit;
+    font-size: 14px;
+}
+
+img { max-width: 100%; display: block; }
+
+.container {
+    max-width: var(--container);
+    margin: 0 auto;
+    padding: 0 24px;
+}

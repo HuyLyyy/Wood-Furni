@@ -1,0 +1,192 @@
+# =============================================================================
+# WOODFURNI — Full-stack Docker Compose
+# =============================================================================
+# Stack:
+#   mongo         — MongoDB 7 (database chính)
+#   mongo-express — UI debug DB (optional, profile: debug)
+#   backend       — Spring Boot (furniture-api), context /api/v1
+#   gateway       — Node.js Gateway (Express + Socket.IO) — single entry point
+#                    for REST proxy, internal notify endpoints, JWT WS auth
+#   customer-app  — React (Vite build) → nginx serve SPA
+#   admin-app     — React (Vite build) → nginx serve SPA
+#
+# Kiến trúc request:
+#   browser → customer-app (nginx:80)  ─┐
+#   browser → admin-app    (nginx:80)  ─┤
+#   browser → gateway      (3000)        ← cả 2 app cấu hình VITE_API_BASE_URL
+#                                          trỏ vào đây, dùng trực tiếp từ browser.
+#                                          Lý do: chỉ 1 origin, gateway làm CORS
+#                                          chung cho cả REST + WS.
+#   gateway   → backend    (8080, internal)
+#   backend   → mongo      (27017, internal)
+#
+# Lưu ý khi dev local:
+#   - Để các app truy cập gateway trực tiếp từ browser, VITE_API_BASE_URL được
+#     bake vào bundle lúc build phải trỏ vào public URL của gateway
+#     (vd http://localhost:3000). Xem docker/.env.example.
+#   - Nếu muốn frontend dev ngoài Docker (`npm run dev`) gọi vào backend
+#     trong Docker thì dùng http://localhost:8080/api/v1 cho VITE_API_BASE_URL.
+#
+# Build context là `..` (parent folder = woodfurni/) — toàn bộ monorepo
+# được gửi làm build context, các Dockerfiles chỉ COPY artifact + runtime
+# files cần thiết. Xem .dockerignore ở root.
+#
+# ⚠️ Windows: dùng `compose.ps1` thay vì `docker compose` trực tiếp nếu
+# gặp lỗi BuildKit/Bake EOF. Xem docker/README nếu có.
+# =============================================================================
+
+services:
+  # ----- MongoDB -------------------------------------------------------------
+  mongo:
+    image: mongo:7
+    container_name: woodfurni-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-woodfurni}
+    volumes:
+      - mongo_data:/data/db
+      # Auto-run indexes/*.js mỗi lần container khởi tạo lần đầu
+      # (chỉ chạy khi /data/db rỗng). Mount flat để mongosh auto-pickup.
+      - ./mongo-entrypoint.sh:/docker-entrypoint-initdb.d/00-mongo-entrypoint.sh:ro
+      - ../database/indexes/products.indexes.js:/docker-entrypoint-initdb.d/products.indexes.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - woodfurni-net
+
+  # ----- mongo-express (chỉ bật khi debug) ----------------------------------
+  mongo-express:
+    image: mongo-express:1.0.2
+    container_name: woodfurni-mongo-express
+    restart: unless-stopped
+    profiles: ["debug"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_MONGODB_ENABLE_ADMIN: "true"
+      ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USER:-admin}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASSWORD:-admin}
+    networks:
+      - woodfurni-net
+
+  # ----- Spring Boot Backend -------------------------------------------------
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    container_name: woodfurni-backend
+    restart: unless-stopped
+    depends_on:
+      mongo:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/${MONGO_DATABASE:-woodfurni}
+      MONGODB_DATABASE: ${MONGO_DATABASE:-woodfurni}
+      SERVER_PORT: 8080
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_EXPIRATION: ${JWT_ACCESS_EXPIRATION:-3600000}
+      JWT_REFRESH_EXPIRATION: ${JWT_REFRESH_EXPIRATION:-604800000}
+      # Gateway nội bộ — backend gọi gateway bằng tên service trong docker network
+      GATEWAY_BASE_URL: http://gateway:3000
+      GATEWAY_INTERNAL_SECRET: ${GATEWAY_INTERNAL_SECRET}
+      GATEWAY_ENABLED: "true"
+      JAVA_OPTS: "-Xms256m -Xmx512m"
+      STORAGE_UPLOAD_DIR: /app/uploads
+    volumes:
+      - backend-uploads:/app/uploads
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/v1/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - woodfurni-net
+
+  # ----- Node.js Gateway ----------------------------------------------------
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/gateway.Dockerfile
+    container_name: woodfurni-gateway
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "3001:3000"
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SECRET: ${GATEWAY_INTERNAL_SECRET}
+      BACKEND_BASE_URL: http://backend:8080
+      # CORS: cho phép 2 frontend SPA gọi thẳng vào gateway từ browser
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:5174,http://localhost:8082,http://localhost:8083}
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health | grep -q ok || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - woodfurni-net
+
+  # ----- Customer SPA --------------------------------------------------------
+  customer-app:
+    build:
+      context: ..
+      dockerfile: docker/customer-app.Dockerfile
+      args:
+        # URL public của gateway mà browser sẽ gọi tới. Khi chạy local
+        # mặc định http://localhost:3000 (cổng map ra host của gateway service).
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000/api/v1}
+        VITE_SOCKET_URL: ${VITE_SOCKET_URL:-http://localhost:3000}
+    container_name: woodfurni-customer-app
+    restart: unless-stopped
+    ports:
+      - "8082:80"
+    depends_on:
+      - gateway
+    networks:
+      - woodfurni-net
+
+  # ----- Admin SPA -----------------------------------------------------------
+  admin-app:
+    build:
+      context: ..
+      dockerfile: docker/admin-app.Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:3000/api/v1}
+        VITE_SOCKET_URL: ${VITE_SOCKET_URL:-http://localhost:3000}
+    container_name: woodfurni-admin-app
+    restart: unless-stopped
+    ports:
+      - "8083:80"
+    depends_on:
+      - gateway
+    networks:
+      - woodfurni-net
+
+# ----- Volumes & Networks ---------------------------------------------------
+volumes:
+  mongo_data:
+    name: woodfurni_mongo_data
+  backend-uploads:
+
+networks:
+  woodfurni-net:
+    name: woodfurni-net
+    driver: bridge

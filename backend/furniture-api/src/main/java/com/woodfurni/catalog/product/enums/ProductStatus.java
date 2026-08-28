@@ -1,0 +1,12 @@
+package com.woodfurni.catalog.product.enums;
+
+/**
+ * Product status.
+ * As defined in WOODFURNI spec Mục 3.3.
+ */
+public enum ProductStatus {
+    DRAFT,
+    ACTIVE,
+    OUT_OF_STOCK,
+    DISCONTINUED
+}

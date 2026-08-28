@@ -24,10 +24,13 @@ import org.springframework.web.bind.annotation.RestController;
  * REST controller for authentication endpoints.
  * Base path: /api/v1/auth
  *
+ * Note: context-path /api/v1 is configured in application.yml, so this
+ * controller's path /auth resolves to /api/v1/auth at runtime.
+ *
  * All responses are wrapped in ApiResponse format.
  */
 @RestController
-@RequestMapping("/api/v1/auth")
+@RequestMapping("/auth")
 @RequiredArgsConstructor
 @Tag(name = "Authentication", description = "User authentication and authorization")
 public class AuthController {

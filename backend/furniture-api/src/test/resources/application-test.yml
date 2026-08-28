@@ -1,0 +1,63 @@
+# =============================================================================
+# WOODFURNI - Test profile overrides
+# =============================================================================
+# Active when @ActiveProfiles("test") is set, or when src/test/resources
+# is the first classpath root (which it is for mvn test).
+#
+# Differences from application.yml:
+#   - Fixed JWT secret so JwtProvider doesn't read a missing env var
+#   - Embedded MongoDB URI — spring-boot-starter-data-mongodb + de.flapdoodle
+#     auto-starts an in-process Mongo when @DataMongoTest / @SpringBootTest
+#     are used. The auto-config wires the URI from the `de.flapdoodle` block
+#     below if no real mongo is reachable.
+#   - Gateway disabled (we don't need to actually call it in tests).
+# =============================================================================
+
+spring:
+  data:
+    mongodb:
+      # Default URI used by Spring Data MongoDB. The embedded flapdoodle
+      # mongo (started automatically by @DataMongoTest) is reachable on
+      # a random port; we use the de.flapdoodle section below to direct
+      # the embedded process and let Spring pick up the right URI.
+      uri: ${MONGODB_URI:mongodb://localhost:27017/woodfurni-test}
+      database: ${MONGODB_DATABASE:woodfurni-test}
+      auto-index-creation: true
+
+  # Disable Mongo auto-configuration of de.flapdoodle when @DataMongoTest
+  # is used — that test slice provides its own. We keep it OFF by default
+  # for @SpringBootTest (which uses the URI above). For tests that need a
+  # fresh embedded mongo, set the env var to trigger flapdoodle startup
+  # via the explicit dependency below.
+  cloud:
+    stream:
+      enabled: false
+
+de:
+  flapdoodle:
+    mongodb:
+      embedded:
+        version: 7.0.5
+
+jwt:
+  secret: ${JWT_SECRET:test-secret-key-must-be-at-least-32-characters-long-for-hs256}
+  access-token-expiration-ms: 3600000
+  refresh-token-expiration-ms: 604800000
+
+server:
+  port: 0
+  servlet:
+    context-path: /api/v1
+
+gateway:
+  base-url: http://localhost:0
+  internal-secret: test-internal-secret
+  enabled: false
+
+logging:
+  level:
+    com.woodfurni: INFO
+    org.springframework.data.mongodb: WARN
+    org.springframework.security: WARN
+    de.flapdoodle: WARN
+    org.testcontainers: WARN
