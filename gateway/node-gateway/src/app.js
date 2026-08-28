@@ -49,10 +49,9 @@ app.use(cors({
 // http-proxy-middleware v3 syntax:
 //   - on: { proxyReq: fn }   (top-level onProxyReq is removed)
 //   - pathRewrite             (still accepts the object form in v3)
-app.use('/api', createProxyMiddleware({
+app.use('/api/v1', createProxyMiddleware({
     target: BACKEND_BASE_URL,
     changeOrigin: true,
-    pathRewrite: { '^/api': '/api' },
     on: {
         proxyReq: (proxyReq, req) => {
             // Forward Authorization header from browser → backend
