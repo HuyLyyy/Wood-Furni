@@ -139,58 +139,50 @@ public class ProductService {
     }
 
     private Criteria buildPriceCriteria(java.math.BigDecimal minPrice, java.math.BigDecimal maxPrice) {
-        // Filter products by their EFFECTIVE price: salePrice if non-null, otherwise price.
+        // Filter by EFFECTIVE price: salePrice if non-null-and-positive, else price.
         //
-        // We use `$expr` + `$cond` to compute the effective price on the MongoDB side
-        // and compare it with the requested bounds in a single expression. This is
-        // exact (no overlap between salePrice-arm and price-arm) and avoids the
-        // edge cases of the OR-of-arms approach (e.g. a product with salePrice=25M
-        // would match minPrice=1M even though the *real* effective price is 25M,
-        // not 1M, which is misleading).
+        // Approach: use $expr with $cond/$ifNull to compute effective price, then
+        // compare with bounds.  This is equivalent to:
+        //   effective = (salePrice != null && salePrice > 0) ? salePrice : price
         //
-        // Generated Mongo:
-        //   { $expr: { $and: [
-        //       { $gte: [ { $cond: [ { $ne: ["$salePrice", null] }, "$salePrice", "$price" ] }, minPrice? ] },
-        //       { $lte: [ { $cond: [ { $ne: ["$salePrice", null] }, "$salePrice", "$price" ] }, maxPrice? ] }
-        //     ]}}
+        // Generated Mongo query structure (min + max):
+        //   { $expr: {
+        //       $and: [
+        //         { $gte: [ effectivePrice, minPrice ] },
+        //         { $lte: [ effectivePrice, maxPrice ] }
+        //       ]
+        //   }}
+        // where effectivePrice = { $cond: [ { $gt: [ { $ifNull: ["$salePrice", 0] }, 0 ] }, "$salePrice", "$price" ] }
 
-        List<Criteria> predicates = new ArrayList<>();
-
-        // Build the effective-price expression once and reuse it in both bounds.
-        // Spring Data's Criteria does not expose $cond directly, so we drop down
-        // to Document-level operators and wrap the whole thing in a Criteria.
-        org.bson.Document cond = new org.bson.Document(
-                "$cond",
+        org.bson.Document effectivePrice = new org.bson.Document("$cond",
                 java.util.List.of(
-                        new org.bson.Document("$ne", java.util.List.of("$salePrice", null)),
+                        // if salePrice is null → treated as 0; if > 0 → use salePrice
+                        new org.bson.Document("$gt",
+                                java.util.List.of(new org.bson.Document("$ifNull",
+                                        java.util.List.of("$salePrice", 0)), 0)),
                         "$salePrice",
                         "$price"
                 )
         );
 
-        if (minPrice != null) {
-            org.bson.Document gte = new org.bson.Document(
-                    "$gte",
-                    java.util.List.of(cond, minPrice)
+        if (minPrice != null && maxPrice != null) {
+            org.bson.Document both = new org.bson.Document("$and",
+                    java.util.List.of(
+                            new org.bson.Document("$gte", java.util.List.of(effectivePrice, minPrice)),
+                            new org.bson.Document("$lte", java.util.List.of(effectivePrice, maxPrice))
+                    )
             );
-            predicates.add(Criteria.where("$expr").is(gte));
+            return Criteria.where("$expr").is(both);
+        }
+        if (minPrice != null) {
+            return Criteria.where("$expr").is(
+                    new org.bson.Document("$gte", java.util.List.of(effectivePrice, minPrice)));
         }
         if (maxPrice != null) {
-            org.bson.Document lte = new org.bson.Document(
-                    "$lte",
-                    java.util.List.of(cond, maxPrice)
-            );
-            predicates.add(Criteria.where("$expr").is(lte));
+            return Criteria.where("$expr").is(
+                    new org.bson.Document("$lte", java.util.List.of(effectivePrice, maxPrice)));
         }
-
-        if (predicates.isEmpty()) {
-            return new Criteria();
-        }
-        if (predicates.size() == 1) {
-            return predicates.get(0);
-        }
-        // AND the two $expr predicates together so both bounds must hold.
-        return new Criteria().andOperator(predicates.toArray(new Criteria[0]));
+        return new Criteria();
     }
 
     private String resolveCategoryId(String category) {
