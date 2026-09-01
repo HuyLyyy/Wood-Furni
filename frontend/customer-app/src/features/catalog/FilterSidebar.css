@@ -3,6 +3,17 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     padding: 16px;
+    box-sizing: border-box;
+    overflow: hidden;
+    /* FIX: establish a width so percentage-based children can resolve */
+    width: 100%;
+    max-width: 100%;
+}
+
+.filter-sidebar__body {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
 }
 
 .filter-sidebar__head {
@@ -73,32 +84,45 @@
 .filter-sidebar__range {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     width: 100%;
-    /* keep children from overflowing the sidebar */
     min-width: 0;
+    box-sizing: border-box;
 }
 
-.filter-sidebar__range .input-wrap {
-    /* override global Input.css margin so the two boxes align on one row */
-    margin-bottom: 0;
+.filter-sidebar__range-input {
     flex: 1 1 0;
     min-width: 0;
-}
-
-.filter-sidebar__range .input-shell {
     width: 100%;
+    padding: 10px 10px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: #fff;
+    font-size: 14px;
+    color: var(--color-text);
+    font-family: inherit;
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    /* Hide native number spinners (Chrome/Safari) so the box stays narrow */
+    -moz-appearance: textfield;
+    appearance: textfield;
 }
-
-.filter-sidebar__range > :first-child,
-.filter-sidebar__range > :last-child {
-    flex: 1 1 0;
-    min-width: 0;
+.filter-sidebar__range-input::-webkit-outer-spin-button,
+.filter-sidebar__range-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.filter-sidebar__range-input:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(107, 79, 42, 0.08);
 }
 
 .filter-sidebar__range-sep {
     color: var(--color-text-muted);
     font-size: 14px;
+    flex-shrink: 0;
+    line-height: 1;
 }
 
 /* -------- mobile toggle -------- */

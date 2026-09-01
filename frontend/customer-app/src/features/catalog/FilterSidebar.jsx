@@ -94,22 +94,24 @@ export default function FilterSidebar({
             <fieldset className="filter-sidebar__group">
                 <legend className="filter-sidebar__legend">Khoảng giá (VND)</legend>
                 <div className="filter-sidebar__range">
-                    <Input
+                    <input
                         id="flt-minPrice"
                         type="number"
                         placeholder="Từ"
                         value={filters.minPrice || ''}
                         onChange={handle('minPrice')}
                         min="0"
+                        className="filter-sidebar__range-input"
                     />
                     <span className="filter-sidebar__range-sep">—</span>
-                    <Input
+                    <input
                         id="flt-maxPrice"
                         type="number"
                         placeholder="Đến"
                         value={filters.maxPrice || ''}
                         onChange={handle('maxPrice')}
                         min="0"
+                        className="filter-sidebar__range-input"
                     />
                 </div>
             </fieldset>
