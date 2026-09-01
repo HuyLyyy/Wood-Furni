@@ -74,11 +74,26 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    width: 100%;
+    /* keep children from overflowing the sidebar */
+    min-width: 0;
+}
+
+.filter-sidebar__range .input-wrap {
+    /* override global Input.css margin so the two boxes align on one row */
+    margin-bottom: 0;
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+.filter-sidebar__range .input-shell {
+    width: 100%;
 }
 
 .filter-sidebar__range > :first-child,
 .filter-sidebar__range > :last-child {
-    flex: 1;
+    flex: 1 1 0;
+    min-width: 0;
 }
 
 .filter-sidebar__range-sep {
