@@ -139,29 +139,51 @@ public class ProductService {
     }
 
     private Criteria buildPriceCriteria(java.math.BigDecimal minPrice, java.math.BigDecimal maxPrice) {
-        Criteria salePriceCriteria = Criteria.where("salePrice").ne(null);
-        Criteria priceCriteria = Criteria.where("salePrice").is(null).and("price");
+        // The "effective" price of a product = salePrice if set & > 0, otherwise price.
+        // We need to filter products whose effective price falls in [minPrice, maxPrice].
+        //
+        // MongoDB representation:
+        //   effectivePrice = salePrice when salePrice != null
+        //                   = price      when salePrice == null
+        //
+        // To express this we split into two arms per bound, joined by AND across
+        // bounds and OR within each bound. Each arm is built with andOperator()
+        // so the predicates are correctly grouped in the generated Mongo query.
+        //
+        // Example minPrice only → effective >= minPrice:
+        //   { $or: [
+        //       { salePrice: { $gte: minPrice } },
+        //       { $and: [ { salePrice: null }, { price: { $gte: minPrice } } ] }
+        //     ] }
 
-        if (minPrice != null && maxPrice != null) {
-            Criteria minCriteria = new Criteria().orOperator(
-                    Criteria.where("salePrice").gte(minPrice),
-                    Criteria.where("salePrice").is(null).and("price").gte(minPrice)
+        Criteria minArm = null;
+        Criteria maxArm = null;
+
+        if (minPrice != null) {
+            Criteria minSale = Criteria.where("salePrice").gte(minPrice);
+            Criteria minNoSale = new Criteria().andOperator(
+                    Criteria.where("salePrice").is(null),
+                    Criteria.where("price").gte(minPrice)
             );
-            Criteria maxCriteria = new Criteria().orOperator(
-                    Criteria.where("salePrice").lte(maxPrice),
-                    Criteria.where("salePrice").is(null).and("price").lte(maxPrice)
+            minArm = new Criteria().orOperator(minSale, minNoSale);
+        }
+        if (maxPrice != null) {
+            Criteria maxSale = Criteria.where("salePrice").lte(maxPrice);
+            Criteria maxNoSale = new Criteria().andOperator(
+                    Criteria.where("salePrice").is(null),
+                    Criteria.where("price").lte(maxPrice)
             );
-            return new Criteria().andOperator(minCriteria, maxCriteria);
-        } else if (minPrice != null) {
-            return new Criteria().orOperator(
-                    Criteria.where("salePrice").gte(minPrice),
-                    Criteria.where("salePrice").is(null).and("price").gte(minPrice)
-            );
-        } else if (maxPrice != null) {
-            return new Criteria().orOperator(
-                    Criteria.where("salePrice").lte(maxPrice),
-                    Criteria.where("salePrice").is(null).and("price").lte(maxPrice)
-            );
+            maxArm = new Criteria().orOperator(maxSale, maxNoSale);
+        }
+
+        if (minArm != null && maxArm != null) {
+            return new Criteria().andOperator(minArm, maxArm);
+        }
+        if (minArm != null) {
+            return minArm;
+        }
+        if (maxArm != null) {
+            return maxArm;
         }
         return new Criteria();
     }
