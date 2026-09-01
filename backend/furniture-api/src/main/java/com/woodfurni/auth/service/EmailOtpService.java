@@ -6,6 +6,7 @@ import com.woodfurni.auth.repository.EmailOtpRepository;
 import com.woodfurni.auth.repository.EmailOtpVerifiedTokenRepository;
 import com.woodfurni.auth.repository.UserRepository;
 import com.woodfurni.common.ApiResponse;
+import jakarta.annotation.PostConstruct;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
@@ -69,6 +70,17 @@ public class EmailOtpService {
 
     @Value("${spring.mail.password:}")
     private String smtpPassword;
+
+    @PostConstruct
+    void logSmtpStatus() {
+        boolean hasUser = smtpUsername != null && !smtpUsername.isBlank();
+        boolean hasPass = smtpPassword != null && !smtpPassword.isBlank();
+        log.info("=================================================");
+        log.info("SMTP STATUS: username={}, password-set={}, from={}",
+                hasUser ? smtpUsername : "(EMPTY)", hasPass, mailFrom);
+        log.info("SMTP MODE: {}", (hasUser && hasPass) ? "PRODUCTION (will send real email)" : "DEV (returns devOtpCode)");
+        log.info("=================================================");
+    }
 
     // ------------------------------------------------------------------------
     // Send
