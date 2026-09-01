@@ -152,7 +152,19 @@ export default function OtpVerificationStep({ email, onVerified, onBack, onResen
             const data = await authApi.sendRegistrationOtp(email);
             const wait = data?.cooldownSeconds ?? 60;
             setCooldown(wait || 60);
-            setInfo('Đã gửi lại mã xác nhận. Vui lòng kiểm tra email.');
+            if (data?.devOtpCode) {
+                toast.success(
+                    `Mã xác nhận (chưa cấu hình SMTP): ${data.devOtpCode}`,
+                    { duration: 120000, id: 'dev-otp' }
+                );
+                const code = String(data.devOtpCode).slice(0, CODE_LENGTH).split('');
+                const next = Array(CODE_LENGTH).fill('');
+                for (let i = 0; i < code.length; i += 1) next[i] = code[i];
+                setDigits(next);
+                setInfo('Mã xác nhận (chế độ dev): vui lòng dùng mã dưới đây');
+            } else {
+                setInfo('Đã gửi lại mã xác nhận. Vui lòng kiểm tra email.');
+            }
             onResent?.(data);
         } catch (err) {
             setError(err?.message || 'Không thể gửi lại mã. Vui lòng thử lại sau.');

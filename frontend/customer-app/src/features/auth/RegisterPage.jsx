@@ -65,6 +65,15 @@ export default function RegisterPage() {
             const data = await authApi.sendRegistrationOtp(form.email.trim());
             const cooldown = data?.cooldownSeconds ?? 60;
             setDevOtpCode(data?.devOtpCode ?? null);
+            if (data?.devOtpCode) {
+                // Dev mode (SMTP not configured on server): surface the code
+                // immediately in a sticky toast so the user is never blocked
+                // from registering even if the OTP step UI is still cached.
+                toast.success(
+                    `Mã xác nhận (chưa cấu hình SMTP): ${data.devOtpCode}`,
+                    { duration: 120000, id: 'dev-otp' }
+                );
+            }
             toast.success(
                 cooldown > 0
                     ? 'Đã gửi mã xác nhận đến email của bạn'
