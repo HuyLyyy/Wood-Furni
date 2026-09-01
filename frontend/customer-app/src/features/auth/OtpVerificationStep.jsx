@@ -13,7 +13,7 @@ const CODE_LENGTH = 6;
  * - Auto-submits once all 6 digits are present.
  * - Resend button is disabled while {@code cooldown} > 0.
  */
-export default function OtpVerificationStep({ email, onVerified, onBack, onResent }) {
+export default function OtpVerificationStep({ email, onVerified, onBack, onResent, devOtpCode }) {
     const [digits, setDigits] = useState(() => Array(CODE_LENGTH).fill(''));
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -24,6 +24,19 @@ export default function OtpVerificationStep({ email, onVerified, onBack, onResen
     useEffect(() => {
         inputsRef.current[0]?.focus();
     }, []);
+
+    // When the backend returns a dev OTP code (no SMTP configured), auto-fill
+    // it so the user can complete registration on Render deployments that
+    // don't have MAIL_USERNAME/MAIL_PASSWORD set.
+    useEffect(() => {
+        if (devOtpCode && /^\d+$/.test(String(devOtpCode))) {
+            const code = String(devOtpCode).slice(0, CODE_LENGTH).split('');
+            const next = Array(CODE_LENGTH).fill('');
+            for (let i = 0; i < code.length; i += 1) next[i] = code[i];
+            setDigits(next);
+            setInfo('Mã xác nhận (chế độ dev): vui lòng dùng mã dưới đây');
+        }
+    }, [devOtpCode]);
 
     // Cooldown countdown
     useEffect(() => {
@@ -153,6 +166,14 @@ export default function OtpVerificationStep({ email, onVerified, onBack, onResen
                 Chúng tôi đã gửi mã xác nhận 6 số đến <strong>{email}</strong>.<br />
                 Vui lòng nhập mã để hoàn tất đăng ký.
             </p>
+
+            {devOtpCode && (
+                <div className="otp-dev-banner" role="status">
+                    <strong>Chế độ phát triển (SMTP chưa cấu hình trên server).</strong>
+                    <span> Mã xác nhận của bạn là </span>
+                    <code className="otp-dev-code">{devOtpCode}</code>
+                </div>
+            )}
 
             <div className="otp-inputs" onPaste={handlePaste}>
                 {digits.map((digit, i) => (

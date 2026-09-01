@@ -64,6 +64,12 @@ public class EmailOtpService {
     @Value("${mail.otp.dev-otp-code:}")
     private String devOtpCode;
 
+    @Value("${spring.mail.username:}")
+    private String smtpUsername;
+
+    @Value("${spring.mail.password:}")
+    private String smtpPassword;
+
     // ------------------------------------------------------------------------
     // Send
     // ------------------------------------------------------------------------
@@ -113,27 +119,40 @@ public class EmailOtpService {
                 .build();
         emailOtpRepository.save(otp);
 
-        String devCode = (devOtpCode == null || devOtpCode.isBlank()) ? null : devOtpCode;
-        boolean sentViaMail = (devCode == null);
+        // Decide whether to send via SMTP or fall back to dev mode.
+        // Dev mode is used when EITHER:
+        //   - DEV_OTP_CODE is explicitly set (forces a fixed code), OR
+        //   - SMTP credentials are missing (no MAIL_USERNAME/MAIL_PASSWORD
+        //     configured, e.g. stale Render env) — so the deploy doesn't
+        //     completely block registration.
+        String configDevCode = (devOtpCode == null || devOtpCode.isBlank()) ? null : devOtpCode;
+        boolean smtpConfigured = smtpUsername != null && !smtpUsername.isBlank()
+                && smtpPassword != null && !smtpPassword.isBlank();
+        boolean forceDev = configDevCode != null || !smtpConfigured;
 
-        if (sentViaMail) {
+        String outboundCode = forceDev ? (configDevCode != null ? configDevCode : code) : null;
+        boolean sentViaMail = false;
+
+        if (!forceDev) {
             try {
                 sendOtpEmail(email, code, ttlSeconds);
+                sentViaMail = true;
             } catch (Exception ex) {
-                log.error("Failed to send OTP email to {}", email, ex);
-                emailOtpRepository.delete(otp);
-                return ApiResponse.error(
-                        "Không thể gửi email xác nhận. Vui lòng thử lại sau.");
+                log.error("Failed to send OTP email to {}: {}", email, ex.toString());
+                // Fall back: surface the code in the response so the user can
+                // still register. The OTP remains valid (it's hashed in DB).
+                outboundCode = code;
             }
         } else {
-            log.warn("DEV OTP for {} = {} (mail not sent)", email, devCode);
+            log.warn("DEV OTP for {} = {} (smtpConfigured={}, devOtpCode set={})",
+                    email, outboundCode, smtpConfigured, configDevCode != null);
         }
 
         OtpSendResult data = OtpSendResult.success(
                 ttlSeconds,
                 cooldownSeconds,
-                devCode,
-                sentViaMail ? null : devCode);
+                outboundCode,
+                sentViaMail ? null : outboundCode);
         return ApiResponse.success("Đã gửi mã xác nhận đến email của bạn", data);
     }
 

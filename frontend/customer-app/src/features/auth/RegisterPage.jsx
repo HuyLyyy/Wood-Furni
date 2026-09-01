@@ -35,6 +35,7 @@ export default function RegisterPage() {
     });
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
+    const [devOtpCode, setDevOtpCode] = useState(null);
 
     function handleChange(e) {
         const { name, value } = e.target;
@@ -63,6 +64,7 @@ export default function RegisterPage() {
         try {
             const data = await authApi.sendRegistrationOtp(form.email.trim());
             const cooldown = data?.cooldownSeconds ?? 60;
+            setDevOtpCode(data?.devOtpCode ?? null);
             toast.success(
                 cooldown > 0
                     ? 'Đã gửi mã xác nhận đến email của bạn'
@@ -111,6 +113,7 @@ export default function RegisterPage() {
                     email={form.email.trim()}
                     onVerified={handleOtpVerified}
                     onBack={handleBackToForm}
+                    devOtpCode={devOtpCode}
                 />
             </div>
         );
