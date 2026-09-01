@@ -35,7 +35,6 @@ export default function RegisterPage() {
     });
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
-    const [devOtpCode, setDevOtpCode] = useState(null);
 
     function handleChange(e) {
         const { name, value } = e.target;
@@ -62,27 +61,11 @@ export default function RegisterPage() {
 
         setSubmitting(true);
         try {
-            const data = await authApi.sendRegistrationOtp(form.email.trim());
-            const cooldown = data?.cooldownSeconds ?? 60;
-            setDevOtpCode(data?.devOtpCode ?? null);
-            if (data?.devOtpCode) {
-                // Dev mode (SMTP not configured on server): surface the code
-                // immediately in a sticky toast so the user is never blocked
-                // from registering even if the OTP step UI is still cached.
-                toast.success(
-                    `Mã xác nhận (chưa cấu hình SMTP): ${data.devOtpCode}`,
-                    { duration: 120000, id: 'dev-otp' }
-                );
-            }
-            toast.success(
-                cooldown > 0
-                    ? 'Đã gửi mã xác nhận đến email của bạn'
-                    : 'Đã gửi lại mã xác nhận'
-            );
+            await authApi.sendRegistrationOtp(form.email.trim());
+            toast.success('Đã gửi mã xác nhận đến email của bạn');
             setStep('otp');
         } catch (err) {
             if (err?.errors) setErrors(err.errors);
-            // The global toast was suppressed for /auth/otp/* — surface it here.
             if (err?.message) toast.error(err.message);
         } finally {
             setSubmitting(false);
@@ -122,7 +105,6 @@ export default function RegisterPage() {
                     email={form.email.trim()}
                     onVerified={handleOtpVerified}
                     onBack={handleBackToForm}
-                    devOtpCode={devOtpCode}
                 />
             </div>
         );
