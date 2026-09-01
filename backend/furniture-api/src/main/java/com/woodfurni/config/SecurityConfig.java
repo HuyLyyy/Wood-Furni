@@ -51,8 +51,9 @@ public class SecurityConfig {
                 // Disable CSRF for REST API (stateless JWT)
                 .csrf(csrf -> csrf.disable())
 
-                // CORS disabled — handled by gateway (nginx) layer
-                .cors(cors -> cors.disable())
+                // CORS enabled for direct frontend access (Vercel, localhost).
+                // CorsConfig defines the allowed origins.
+                .cors(cors -> {})
 
                 // Stateless session management
                 .sessionManagement(session ->
