@@ -73,8 +73,8 @@ export function AuthProvider({ children }) {
         return authResponse.user;
     }, []);
 
-    const register = useCallback(async ({ email, password, fullName, phone }) => {
-        const authResponse = await authApi.register({ email, password, fullName, phone });
+    const register = useCallback(async ({ email, password, fullName, phone, otpToken }) => {
+        const authResponse = await authApi.register({ email, password, fullName, phone, otpToken });
         tokenStorage.setAccess(authResponse.accessToken);
         tokenStorage.setRefresh(authResponse.refreshToken);
         tokenStorage.setUser(authResponse.user);

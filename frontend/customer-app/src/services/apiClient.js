@@ -117,11 +117,17 @@ apiClient.interceptors.response.use(
             const body = error.response.data;
             if (body.success === false) {
                 const message = body.message || 'Đã xảy ra lỗi';
+                // Endpoints where the calling component owns the UX of the
+                // error (e.g. inline OTP form). We still surface the parsed
+                // error to the caller but suppress the global toast.
+                const isSilentEndpoint = original?.url?.includes('/auth/otp/');
                 // For 401 during login (no refresh token in storage), show toast
                 // For other 401 cases, we handle redirect silently
                 const isLoginAttempt = !tokenStorage.getAccess() && !original?.url?.endsWith('/auth/refresh');
                 if (error.response.status !== 401 || isLoginAttempt) {
-                    toast.error(message);
+                    if (!isSilentEndpoint) {
+                        toast.error(message);
+                    }
                 }
                 return Promise.reject({
                     status: error.response.status,

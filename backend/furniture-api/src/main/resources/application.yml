@@ -6,15 +6,32 @@ spring:
   application:
     name: furniture-api
 
-  # MongoDB Configuration
+    # MongoDB Configuration
   data:
     mongodb:
       # MongoDB URI - override with MONGODB_URI environment variable
       # Default: mongodb://localhost:27017/woodfurni
       uri: ${MONGODB_URI:mongodb://localhost:27017/woodfurni}
-      auto-index-creation: false
+      auto-index-creation: true
       # Database name (extracted from URI if not specified)
       database: ${MONGODB_DATABASE:woodfurni}
+
+  # Mail Configuration (Gmail SMTP for OTP emails)
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
 
 # Server Configuration
 server:
@@ -95,6 +112,21 @@ gateway:
 storage:
   upload-dir: ${STORAGE_UPLOAD_DIR:/app/uploads}
   max-file-mb: ${STORAGE_MAX_FILE_MB:5}
+
+# =============================================================================
+# Mail / OTP Configuration
+# =============================================================================
+mail:
+  from: ${MAIL_FROM:no-reply@woodfurni.vn}
+  from-name: ${MAIL_FROM_NAME:WOODFURNI}
+  otp:
+    ttl-seconds: 300            # 5 minutes
+    cooldown-seconds: 60        # minimum gap between resend
+    max-attempts: 5             # wrong code attempts before lockout
+    code-length: 6
+    # dev-otp-code: when set, EmailOtpService returns this code instead of
+    # sending email. Useful for local dev / E2E tests without SMTP.
+    dev-otp-code: ${DEV_OTP_CODE:}
 
 # =============================================================================
 # Shipping Configuration

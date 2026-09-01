@@ -29,4 +29,11 @@ public class RegisterRequest {
     private String fullName;
 
     private String phone;
+
+    /**
+     * Single-use token returned by {@code POST /auth/otp/verify}. Required
+     * for the customer self-registration flow. May be left blank by trusted
+     * flows (admin creating a staff account, internal seed scripts).
+     */
+    private String otpToken;
 }

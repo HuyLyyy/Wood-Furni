@@ -24,4 +24,10 @@ export const authApi = {
     me: () => apiClient.get('/auth/me').then((r) => r.data.data),
 
     logout: () => apiClient.post('/auth/logout').then((r) => r.data),
+
+    sendRegistrationOtp: (email) =>
+        apiClient.post('/auth/otp/send', { email }).then((r) => r.data.data),
+
+    verifyRegistrationOtp: (email, code) =>
+        apiClient.post('/auth/otp/verify', { email, code }).then((r) => r.data.data),
 };

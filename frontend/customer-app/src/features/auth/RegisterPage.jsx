@@ -4,16 +4,27 @@ import toast from 'react-hot-toast';
 import { Button, Input } from '../../components/index.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { validate, validators } from '../../utils/validators.js';
+import { authApi } from '../../services/apiAuth.js';
+import OtpVerificationStep from './OtpVerificationStep.jsx';
 import './AuthForm.css';
 
 /**
- * RegisterPage — POST /auth/register
- * Body: { email, password, fullName, phone } (matches backend dto/RegisterRequest)
- * Backend creates the user with role=CUSTOMER (default) and returns AuthResponse.
+ * RegisterPage — two-step registration flow.
+ *
+ * Step 1 (form): User fills in name/email/phone/password, clicks
+ *   "Gửi mã xác nhận" -> POST /auth/otp/send -> backend emails a 6-digit code.
+ *
+ * Step 2 (OTP):  User enters the code. Once /auth/otp/verify succeeds
+ *   we get back a single-use otpToken, then call POST /auth/register with
+ *   { ..., otpToken } -> backend creates the CUSTOMER and returns JWT.
+ *
+ * On success, AuthContext stores tokens + user and we navigate to "/".
  */
 export default function RegisterPage() {
     const { register } = useAuth();
     const navigate = useNavigate();
+
+    const [step, setStep] = useState('form'); // 'form' | 'otp'
 
     const [form, setForm] = useState({
         email: '',
@@ -25,13 +36,13 @@ export default function RegisterPage() {
     const [errors, setErrors] = useState({});
     const [submitting, setSubmitting] = useState(false);
 
-    const handleChange = (e) => {
+    function handleChange(e) {
         const { name, value } = e.target;
         setForm((prev) => ({ ...prev, [name]: value }));
         if (errors[name]) setErrors((prev) => ({ ...prev, [name]: null }));
-    };
+    }
 
-    const handleSubmit = async (e) => {
+    async function handleSendOtp(e) {
         e.preventDefault();
 
         const validationErrors = validate(form, {
@@ -50,20 +61,60 @@ export default function RegisterPage() {
 
         setSubmitting(true);
         try {
+            const data = await authApi.sendRegistrationOtp(form.email.trim());
+            const cooldown = data?.cooldownSeconds ?? 60;
+            toast.success(
+                cooldown > 0
+                    ? 'Đã gửi mã xác nhận đến email của bạn'
+                    : 'Đã gửi lại mã xác nhận'
+            );
+            setStep('otp');
+        } catch (err) {
+            if (err?.errors) setErrors(err.errors);
+            // The global toast was suppressed for /auth/otp/* — surface it here.
+            if (err?.message) toast.error(err.message);
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleOtpVerified(otpToken) {
+        setSubmitting(true);
+        try {
             await register({
                 email: form.email.trim(),
                 password: form.password,
                 fullName: form.fullName.trim(),
                 phone: form.phone.trim() || undefined,
+                otpToken,
             });
             toast.success('Đăng ký thành công!');
             navigate('/', { replace: true });
         } catch (err) {
             if (err?.errors) setErrors(err.errors);
+            if (err?.message) toast.error(err.message);
+            // Send the user back to step 2 to retry the code.
+            setStep('otp');
         } finally {
             setSubmitting(false);
         }
-    };
+    }
+
+    function handleBackToForm() {
+        setStep('form');
+    }
+
+    if (step === 'otp') {
+        return (
+            <div className="auth-page">
+                <OtpVerificationStep
+                    email={form.email.trim()}
+                    onVerified={handleOtpVerified}
+                    onBack={handleBackToForm}
+                />
+            </div>
+        );
+    }
 
     return (
         <div className="auth-page">
@@ -73,7 +124,7 @@ export default function RegisterPage() {
                     Trở thành thành viên WOODFURNI để nhận ưu đãi
                 </p>
 
-                <form onSubmit={handleSubmit} noValidate>
+                <form onSubmit={handleSendOtp} noValidate>
                     <Input
                         id="fullName"
                         name="fullName"
@@ -96,6 +147,7 @@ export default function RegisterPage() {
                         error={errors.email}
                         required
                         autoComplete="email"
+                        hint="Mã xác nhận sẽ được gửi đến email này"
                     />
                     <Input
                         id="phone"
@@ -141,7 +193,7 @@ export default function RegisterPage() {
                         fullWidth
                         loading={submitting}
                     >
-                        {submitting ? 'Đang tạo tài khoản...' : 'Đăng ký'}
+                        {submitting ? 'Đang gửi mã...' : 'Gửi mã xác nhận'}
                     </Button>
                 </form>
 

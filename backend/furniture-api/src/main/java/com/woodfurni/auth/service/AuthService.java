@@ -12,10 +12,12 @@ import com.woodfurni.common.ApiResponse;
 import com.woodfurni.security.JwtProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
+import java.util.Optional;
 
 /**
  * Authentication service for WOODFURNI API.
@@ -32,22 +34,52 @@ public class AuthService {
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
+    private final EmailOtpService emailOtpService;
+
+    @Value("${auth.otp-required:true}")
+    private boolean otpRequired;
 
     /**
      * Register a new user.
+     *
+     * Customer self-registration flow requires a valid {@code otpToken}
+     * previously issued by {@link EmailOtpService#verifyRegistrationOtp}.
+     * When {@code auth.otp-required=false} (e.g. admin-app internal calls,
+     * seed scripts) the token is optional.
      *
      * @param request registration data
      * @return ApiResponse with AuthResponse on success
      */
     public ApiResponse<AuthResponse> register(RegisterRequest request) {
+        String normalizedEmail = request.getEmail() == null
+                ? null : request.getEmail().trim().toLowerCase();
+
+        // Verify OTP token if required.
+        if (otpRequired) {
+            if (request.getOtpToken() == null || request.getOtpToken().isBlank()) {
+                return ApiResponse.error(
+                        "Vui lòng xác nhận email bằng mã OTP trước khi đăng ký");
+            }
+            Optional<String> verifiedEmail = emailOtpService.consumeVerifiedToken(
+                    request.getOtpToken(), EmailOtpService.PURPOSE_REGISTER);
+            if (verifiedEmail.isEmpty()) {
+                return ApiResponse.error(
+                        "Mã xác nhận không hợp lệ hoặc đã hết hạn, vui lòng thử lại");
+            }
+            if (!verifiedEmail.get().equals(normalizedEmail)) {
+                return ApiResponse.error(
+                        "Email xác nhận không khớp với email đăng ký");
+            }
+        }
+
         // Check for duplicate email
-        if (userRepository.existsByEmail(request.getEmail())) {
+        if (userRepository.existsByEmail(normalizedEmail)) {
             return ApiResponse.error("Email đã được sử dụng");
         }
 
         // Create new user
         User user = User.builder()
-                .email(request.getEmail())
+                .email(normalizedEmail)
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .fullName(request.getFullName())
                 .phone(request.getPhone())
