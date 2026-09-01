@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import usePageTitle from '../../hooks/usePageTitle.js';
+import { useAuth } from '../../hooks/useAuth.js';
 import { adminCustomersApi } from '../../services/apiAdminCustomers.js';
 import {
-    DataTable, AdminPagination, Modal, Button,
+    DataTable, AdminPagination, Modal, Button, ConfirmDialog, useConfirmDialog,
 } from '../../components/index.js';
+import { can } from '../../utils/permissions.js';
 import {
     statusLabel, statusTone,
 } from '../../utils/orderMeta.js';
@@ -18,6 +21,8 @@ import './CustomerListPage.css';
  */
 export default function CustomerListPage() {
     usePageTitle('Khách hàng');
+    const { user } = useAuth();
+    const canDelete = can(user?.role, 'customers:delete');
 
     const [page, setPage] = useState(0);
     const [items, setItems] = useState([]);
@@ -115,7 +120,9 @@ export default function CustomerListPage() {
                 <CustomerDetailModal
                     customerId={selected.id}
                     fallback={selected}
+                    canDelete={canDelete}
                     onClose={() => setSelected(null)}
+                    onDeleted={() => { setSelected(null); load(page); }}
                 />
             )}
         </div>
@@ -126,9 +133,11 @@ export default function CustomerListPage() {
 // CustomerDetailModal
 // =============================================================
 
-function CustomerDetailModal({ customerId, fallback, onClose }) {
+function CustomerDetailModal({ customerId, fallback, canDelete, onClose, onDeleted }) {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [deleting, setDeleting] = useState(false);
+    const { confirm, dialog } = useConfirmDialog();
 
     useEffect(() => {
         let cancelled = false;
@@ -140,8 +149,28 @@ function CustomerDetailModal({ customerId, fallback, onClose }) {
 
     const view = data || fallback;
 
+    const handleDelete = async () => {
+        const ok = await confirm({
+            title: 'Xóa tài khoản khách hàng?',
+            message: `Bạn sắp xóa vĩnh viễn tài khoản "${view.fullName || view.email}". Hành động này không thể hoàn tác. Lịch sử đơn hàng sẽ được ẩn danh nhưng vẫn giữ cho báo cáo doanh thu.`,
+            confirmLabel: 'Xóa vĩnh viễn',
+            danger: true,
+        });
+        if (!ok) return;
+        setDeleting(true);
+        try {
+            await adminCustomersApi.remove(customerId);
+            toast.success('Đã xóa tài khoản khách hàng');
+            onDeleted?.();
+        } catch (err) {
+            toast.error(err?.message || 'Không thể xóa tài khoản');
+            setDeleting(false);
+        }
+    };
+
     return (
         <Modal title={`Khách hàng: ${view.fullName || view.email}`} onClose={onClose} width={760}>
+            {dialog}
             {loading && <p style={{ color: '#94a3b8' }}>Đang tải chi tiết...</p>}
             {!loading && (
                 <>
@@ -199,6 +228,18 @@ function CustomerDetailModal({ customerId, fallback, onClose }) {
                                 ))}
                             </tbody>
                         </table>
+                    )}
+
+                    {canDelete && (
+                        <div className="customer-drawer__footer">
+                            <Button
+                                variant="danger"
+                                onClick={handleDelete}
+                                loading={deleting}
+                            >
+                                Xóa tài khoản
+                            </Button>
+                        </div>
                     )}
                 </>
             )}

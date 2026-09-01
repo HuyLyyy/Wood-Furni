@@ -38,7 +38,9 @@ export function can(role, action) {
         'orders:forceCancelPromo': ['ADMIN'],
 
         // CUSTOMERS — ADMIN/SALES can browse customers and their orders.
+        // Delete is ADMIN-only — destructive, used for test-data cleanup.
         'customers:read':    ['ADMIN', 'SALES'],
+        'customers:delete':  ['ADMIN'],
 
         // PROMOTIONS — ADMIN only.
         'promotions:read':   ['ADMIN'],

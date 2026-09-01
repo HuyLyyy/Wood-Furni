@@ -12,11 +12,13 @@ import com.woodfurni.order.enums.PaymentStatus;
 import com.woodfurni.order.model.Order;
 import com.woodfurni.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -31,6 +33,7 @@ import java.util.stream.Collectors;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class CustomerAdminService {
 
     private final UserRepository userRepository;
@@ -141,6 +144,42 @@ public class CustomerAdminService {
                 .createdAt(o.getCreatedAt())
                 .itemCount(itemCount)
                 .build();
+    }
+
+    /**
+     * Hard-delete a CUSTOMER account. Used by admin to clean up test users.
+     * Refuses to touch staff accounts (ADMIN/SALES/WAREHOUSE/CONTENT) — we
+     * don't want a fat-finger admin click to nuke the operations team.
+     *
+     * Side effect: anonymises the customer's order history so the admin
+     * dashboards keep working. We strip the customerId reference and the
+     * shipping snapshot's email/phone, then keep the order line for revenue
+     * metrics. (Hard delete of users would orphan orders, which breaks
+     * getCustomerDetail and the SALES reports.)
+     */
+    public void deleteCustomer(String id) {
+        User user = userRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Customer not found: " + id));
+
+        if (user.getRole() != Role.CUSTOMER) {
+            throw new IllegalArgumentException(
+                    "User " + id + " is not a CUSTOMER (role=" + user.getRole() + ")");
+        }
+
+        // 1. Anonymise this customer's orders — null out the customerId and
+        //    any PII inside shippingAddress. Keep orderNumber + amounts for
+        //    revenue reports.
+        Query orderQ = new Query().addCriteria(Criteria.where("customerId").is(id));
+        Update orderU = new Update()
+                .unset("customerId")
+                .set("shippingAddress.line1", null)
+                .set("shippingAddress.phone", null);
+        long anonymised = mongoTemplate.updateMulti(orderQ, orderU, Order.class).getModifiedCount();
+
+        // 2. Now drop the user document.
+        userRepository.delete(user);
+
+        log.info("Deleted customer {} (anonymised {} orders)", id, anonymised);
     }
 
     /**

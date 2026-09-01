@@ -104,3 +104,12 @@
     color: #64748b;
     font-weight: 600;
 }
+
+.customer-drawer__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid #f1f5f9;
+}

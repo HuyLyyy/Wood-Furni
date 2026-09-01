@@ -13,4 +13,5 @@ const unwrap = (r) => r.data.data;
 export const adminCustomersApi = {
     list: (params) => apiClient.get('/admin/customers', { params }).then(unwrap),
     detail: (id) => apiClient.get(`/admin/customers/${id}`).then(unwrap),
+    remove: (id) => apiClient.delete(`/admin/customers/${id}`).then((r) => r.data),
 };

@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -61,5 +62,13 @@ public class CustomerAdminController {
     @Operation(summary = "Customer detail with order history")
     public ResponseEntity<ApiResponse<CustomerDetailView>> detail(@PathVariable String id) {
         return ResponseEntity.ok(ApiResponse.success(customerAdminService.getCustomerDetail(id)));
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Hard-delete a CUSTOMER account (test/admin cleanup)")
+    public ResponseEntity<ApiResponse<Void>> delete(@PathVariable String id) {
+        customerAdminService.deleteCustomer(id);
+        return ResponseEntity.ok(ApiResponse.success("Customer deleted", null));
     }
 }
