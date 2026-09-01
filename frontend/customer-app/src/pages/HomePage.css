@@ -224,7 +224,7 @@
 .home-section__head {
     display: flex;
     justify-content: space-between;
-    align-items: flex-end;
+    align-items: flex-start;
     margin-bottom: 28px;
     gap: 16px;
     flex-wrap: wrap;
@@ -254,6 +254,8 @@
     color: var(--color-text-muted);
     font-size: 15px;
     padding-left: 16px;
+    /* FIX: added top margin so subtitle doesn't visually touch the title above */
+    margin-top: 10px;
 }
 .home-section__link {
     font-size: 14px;
