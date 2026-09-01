@@ -48,7 +48,11 @@ public class AuthController {
     @Operation(summary = "Login", description = "Authenticate user and return JWT tokens")
     public ResponseEntity<ApiResponse<AuthResponse>> login(
             @Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+        ApiResponse<AuthResponse> response = authService.login(request);
+        if (!response.isSuccess()) {
+            return ResponseEntity.status(401).body(response);
+        }
+        return ResponseEntity.ok(response);
     }
 
     @PostMapping("/refresh")

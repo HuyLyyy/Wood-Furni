@@ -117,8 +117,10 @@ apiClient.interceptors.response.use(
             const body = error.response.data;
             if (body.success === false) {
                 const message = body.message || 'Đã xảy ra lỗi';
-                // Do NOT toast on 401 (we handle redirect). Single source of toast noise.
-                if (error.response.status !== 401) {
+                // For 401 during login (no refresh token in storage), show toast
+                // For other 401 cases, we handle redirect silently
+                const isLoginAttempt = !tokenStorage.getAccess() && !original?.url?.endsWith('/auth/refresh');
+                if (error.response.status !== 401 || isLoginAttempt) {
                     toast.error(message);
                 }
                 return Promise.reject({
