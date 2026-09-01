@@ -61,19 +61,25 @@ public class ProductService {
     public PageResponse<ProductResponse> searchProducts(ProductSearchRequest request, int page, int size, boolean isStaff) {
         List<AggregationOperation> operations = new ArrayList<>();
 
-        // ── 1. $addFields: compute effectivePrice = (salePrice != null && salePrice > 0) ? salePrice : price
+        // ── 1. $addFields: compute effectivePrice =
+        //      if salePrice is non-null AND > 0 then salePrice else price
+        //
+        // We avoid `$ne: [field, null]` because the Bson Document serializer
+        // drops null map values, producing an invalid `$ne: []` operator.
+        // Instead we use `$ifNull` to coerce null/missing to 0, then `$gt` to
+        // pick the salePrice branch.
         operations.add(context -> new Document("$addFields",
                 new Document("effectivePrice",
-                        new Document("$cond",
-                                java.util.List.of(
-                                        new Document("$and", java.util.List.of(
-                                                new Document("$ne", java.util.List.of("$salePrice", null)),
-                                                new Document("$gt", java.util.List.of("$salePrice", 0))
-                                        )),
-                                        "$salePrice",
-                                        "$price"
-                                )
-                        )
+                        new Document("$cond", java.util.List.of(
+                                new Document("$gt",
+                                        java.util.List.of(
+                                                new Document("$ifNull", java.util.List.of("$salePrice", 0)),
+                                                0
+                                        )
+                                ),
+                                "$salePrice",
+                                "$price"
+                        ))
                 )
         ));
 
@@ -137,7 +143,11 @@ public class ProductService {
                 countAgg, "products", Document.class);
         Document countDoc = countResult.getUniqueMappedResult();
         if (countDoc != null) {
-            total = countDoc.getLong("total");
+            // MongoDB may return Integer, Long, or Decimal128 depending on driver/age
+            Object raw = countDoc.get("total");
+            if (raw instanceof Number n) {
+                total = n.longValue();
+            }
         }
 
         // ── 4. Sort + skip + limit
