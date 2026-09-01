@@ -17,18 +17,14 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
-import org.springframework.data.mongodb.core.aggregation.Aggregation;
-import org.springframework.data.mongodb.core.aggregation.AggregationOperation;
-import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
-
+import java.util.Objects;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import org.bson.Document;
 
 @Service
 @RequiredArgsConstructor
@@ -59,126 +55,139 @@ public class ProductService {
      * - Supported: price,asc / -price / ratingAverage
      */
     public PageResponse<ProductResponse> searchProducts(ProductSearchRequest request, int page, int size, boolean isStaff) {
-        List<AggregationOperation> operations = new ArrayList<>();
-
-        // ── 1. $addFields: compute effectivePrice =
-        //      if salePrice is non-null AND > 0 then salePrice else price
-        //
-        // We avoid `$ne: [field, null]` because the Bson Document serializer
-        // drops null map values, producing an invalid `$ne: []` operator.
-        // Instead we use `$ifNull` to coerce null/missing to 0, then `$gt` to
-        // pick the salePrice branch.
-        operations.add(context -> new Document("$addFields",
-                new Document("effectivePrice",
-                        new Document("$cond", java.util.List.of(
-                                new Document("$gt",
-                                        java.util.List.of(
-                                                new Document("$ifNull", java.util.List.of("$salePrice", 0)),
-                                                0
-                                        )
-                                ),
-                                "$salePrice",
-                                "$price"
-                        ))
-                )
-        ));
-
-        // ── 2. $match: all non-price filters (status, keyword, category, etc.)
-        List<Criteria> nonPriceCriteria = new ArrayList<>();
+        // ── 1. Build base Mongo query with non-price filters only
+        Query query = new Query();
+        boolean hasPriceFilter = request.getMinPrice() != null || request.getMaxPrice() != null;
 
         if (request.getKeyword() != null && !request.getKeyword().isBlank()) {
             String kw = request.getKeyword().toLowerCase().trim();
-            nonPriceCriteria.add(new Criteria().orOperator(
+            query.addCriteria(new Criteria().orOperator(
                     Criteria.where("name").regex(kw, "i"),
                     Criteria.where("description").regex(kw, "i"),
                     Criteria.where("sku").regex(kw, "i")
             ));
         }
-
         if (!isStaff) {
-            nonPriceCriteria.add(Criteria.where("status").is(ProductStatus.ACTIVE));
+            query.addCriteria(Criteria.where("status").is(ProductStatus.ACTIVE));
         }
-
         if (request.getCategory() != null && !request.getCategory().isBlank()) {
             String categoryId = resolveCategoryId(request.getCategory());
             if (categoryId != null) {
-                nonPriceCriteria.add(Criteria.where("categoryId").is(categoryId));
+                query.addCriteria(Criteria.where("categoryId").is(categoryId));
             }
         }
-
         if (request.getEnvironment() != null) {
-            nonPriceCriteria.add(Criteria.where("environment").is(request.getEnvironment()));
+            query.addCriteria(Criteria.where("environment").is(request.getEnvironment()));
         }
-
         if (request.getRoom() != null) {
-            nonPriceCriteria.add(Criteria.where("room").is(request.getRoom()));
+            query.addCriteria(Criteria.where("room").is(request.getRoom()));
         }
-
         if (request.getWoodType() != null && !request.getWoodType().isBlank()) {
             List<String> materialIds = resolveMaterialIdsByCode(request.getWoodType().toUpperCase());
             if (!materialIds.isEmpty()) {
-                nonPriceCriteria.add(Criteria.where("materialIds").in(materialIds));
+                query.addCriteria(Criteria.where("materialIds").in(materialIds));
             }
         }
 
-        // Price range on effectivePrice
-        if (request.getMinPrice() != null || request.getMaxPrice() != null) {
-            Criteria priceCriteria = buildPriceCriteria(request.getMinPrice(), request.getMaxPrice());
-            nonPriceCriteria.add(priceCriteria);
-        }
-
-        if (!nonPriceCriteria.isEmpty()) {
-            operations.add(context -> new Document("$match",
-                    new Document("$and", nonPriceCriteria.stream()
-                            .map(Criteria::getCriteriaObject)
-                            .collect(Collectors.toList()))));
-        }
-
-        // ── 3. Total count (run same pipeline with $count)
-        List<AggregationOperation> countOps = new ArrayList<>(operations);
-        countOps.add(context -> new Document("$count", "total"));
-        Aggregation countAgg = Aggregation.newAggregation(countOps);
-        long total = 0;
-        AggregationResults<Document> countResult = mongoTemplate.aggregate(
-                countAgg, "products", Document.class);
-        Document countDoc = countResult.getUniqueMappedResult();
-        if (countDoc != null) {
-            // MongoDB may return Integer, Long, or Decimal128 depending on driver/age
-            Object raw = countDoc.get("total");
-            if (raw instanceof Number n) {
-                total = n.longValue();
-            }
-        }
-
-        // ── 4. Sort + skip + limit
         Sort sort = buildSort(request.getSort());
-        operations.add(Aggregation.sort(sort));
-        operations.add(Aggregation.skip((long) page * size));
-        operations.add(Aggregation.limit(size));
 
-        // ── 5. Remove effectivePrice from output (keep original fields)
-        operations.add(context -> new Document("$project",
-                new Document("effectivePrice", 0)));
+        // ── 2. Fetch candidates. When a price filter is set, fetch all matching
+        // products (no skip/limit) because the price semantics require both
+        // `salePrice` and `price` fields, which is awkward to express as a single
+        // Mongo query. We then filter in Java — collection is small.
+        List<Product> candidates = mongoTemplate.find(query, Product.class);
 
-        Aggregation agg = Aggregation.newAggregation(operations);
-        AggregationResults<Product> results = mongoTemplate.aggregate(
-                agg, "products", Product.class);
-        List<Product> products = results.getMappedResults();
+        // ── 3. Apply effective-price filter and sort in Java
+        java.math.BigDecimal minP = request.getMinPrice();
+        java.math.BigDecimal maxP = request.getMaxPrice();
 
-        // ── 6. Enrich with category & material names
+        java.util.List<Product> filtered = hasPriceFilter
+                ? candidates.stream()
+                    .filter(p -> {
+                        java.math.BigDecimal eff = (p.getSalePrice() != null && p.getSalePrice().signum() > 0)
+                                ? p.getSalePrice() : p.getPrice();
+                        if (eff == null) return false;
+                        if (minP != null && eff.compareTo(minP) < 0) return false;
+                        if (maxP != null && eff.compareTo(maxP) > 0) return false;
+                        return true;
+                    })
+                    .sorted(productComparator(sort))
+                    .collect(Collectors.toList())
+                : candidates;
+
+        // ── 4. Paginate
+        long total = filtered.size();
+        int fromIndex = Math.min(Math.max(0, page * size), filtered.size());
+        int toIndex = Math.min(fromIndex + size, filtered.size());
+        List<Product> pageItems = filtered.subList(fromIndex, toIndex);
+
+        return buildPageResponse(pageItems, page, size, total);
+    }
+
+    private java.util.Comparator<Product> productComparator(Sort sort) {
+        java.util.Comparator<Product> c = (a, b) -> 0;
+        if (sort == null) return c;
+        for (Sort.Order o : sort) {
+            java.util.Comparator<Product> by = (a, b) -> compareField(a, b, o.getProperty());
+            c = c.thenComparing(by);
+            // for DESC, wrap each comparand
+            if (o.isDescending()) {
+                c = c.thenComparing((a, b) -> -compareField(a, b, o.getProperty()));
+            }
+        }
+        return c;
+    }
+
+    private int compareField(Product a, Product b, String field) {
+        if (field == null) return 0;
+        switch (field) {
+            case "price":
+                return nullSafeCompare(a.getPrice(), b.getPrice());
+            case "salePrice":
+                return nullSafeCompare(a.getSalePrice(), b.getSalePrice());
+            case "ratingAverage":
+                Double ax = a.getRatingAverage(), bx = b.getRatingAverage();
+                if (ax == null && bx == null) return 0;
+                if (ax == null) return -1;
+                if (bx == null) return 1;
+                return Double.compare(ax, bx);
+            case "createdAt":
+                java.time.Instant ai = a.getCreatedAt(), bi = b.getCreatedAt();
+                if (ai == null && bi == null) return 0;
+                if (ai == null) return -1;
+                if (bi == null) return 1;
+                return ai.compareTo(bi);
+            default:
+                return 0;
+        }
+    }
+
+    private <T extends java.lang.Comparable<T>> int nullSafeCompare(T a, T b) {
+        if (a == null && b == null) return 0;
+        if (a == null) return -1;
+        if (b == null) return 1;
+        return a.compareTo(b);
+    }
+
+    private PageResponse<ProductResponse> buildPageResponse(List<Product> products, int page, int size, long total) {
         List<String> categoryIds = products.stream()
                 .map(Product::getCategoryId)
+                .filter(Objects::nonNull)
                 .distinct()
                 .collect(Collectors.toList());
-        Map<String, Category> categoryMap = categoryRepository.findAllById(categoryIds).stream()
-                .collect(Collectors.toMap(Category::getId, c -> c));
+        Map<String, Category> categoryMap = categoryIds.isEmpty()
+                ? java.util.Collections.emptyMap()
+                : categoryRepository.findAllById(categoryIds).stream()
+                    .collect(Collectors.toMap(Category::getId, c -> c));
 
         List<String> allMaterialIds = products.stream()
                 .flatMap(p -> p.getMaterialIds() != null ? p.getMaterialIds().stream() : java.util.stream.Stream.empty())
                 .distinct()
                 .collect(Collectors.toList());
-        Map<String, Material> materialMap = materialRepository.findAllById(allMaterialIds).stream()
-                .collect(Collectors.toMap(Material::getId, m -> m));
+        Map<String, Material> materialMap = allMaterialIds.isEmpty()
+                ? java.util.Collections.emptyMap()
+                : materialRepository.findAllById(allMaterialIds).stream()
+                    .collect(Collectors.toMap(Material::getId, m -> m));
 
         List<ProductResponse> responses = products.stream()
                 .map(p -> toResponse(p, categoryMap, materialMap))
@@ -189,22 +198,24 @@ public class ProductService {
                 .page(page)
                 .size(size)
                 .totalElements(total)
-                .totalPages((int) Math.ceil((double) total / size))
+                .totalPages(size <= 0 ? 0 : (int) Math.ceil((double) total / size))
                 .build();
     }
 
     private Criteria buildPriceCriteria(java.math.BigDecimal minPrice, java.math.BigDecimal maxPrice) {
+        // RETAINED for legacy callers but unused by searchProducts.
+        // Effective-price filtering now happens in Java (see searchProducts).
         if (minPrice != null && maxPrice != null) {
             return new Criteria().andOperator(
-                    Criteria.where("effectivePrice").gte(minPrice),
-                    Criteria.where("effectivePrice").lte(maxPrice)
+                    Criteria.where("price").gte(minPrice),
+                    Criteria.where("price").lte(maxPrice)
             );
         }
         if (minPrice != null) {
-            return Criteria.where("effectivePrice").gte(minPrice);
+            return Criteria.where("price").gte(minPrice);
         }
         if (maxPrice != null) {
-            return Criteria.where("effectivePrice").lte(maxPrice);
+            return Criteria.where("price").lte(maxPrice);
         }
         return new Criteria();
     }
