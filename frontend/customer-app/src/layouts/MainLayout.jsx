@@ -1,8 +1,9 @@
 import { Outlet, Link, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useSearchParams } from 'react-router-dom';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import { useCart } from '../contexts/CartContext.jsx';
+import { useSearchHistory } from '../hooks/useSearchHistory.js';
 import LogoSvg from '../assets/logo.svg';
 import './MainLayout.css';
 
@@ -48,6 +49,9 @@ function Header({ isAuthenticated, user, onLogout }) {
     const location = useLocation();
     const isOnProducts = location.pathname === '/products';
     const inputRef = useRef(null);
+    const searchContainerRef = useRef(null);
+    const { history, addTerm, removeTerm, clear } = useSearchHistory();
+    const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
     // Sync input value when navigating back to home page
     useEffect(() => {
@@ -55,6 +59,37 @@ function Header({ isAuthenticated, user, onLogout }) {
             inputRef.current.value = searchParams.get('keyword') || '';
         }
     }, [isOnProducts, searchParams]);
+
+    // Close history dropdown when clicking outside the search box.
+    useEffect(() => {
+        if (!isHistoryOpen) return;
+        const onDocClick = (e) => {
+            if (!searchContainerRef.current?.contains(e.target)) {
+                setIsHistoryOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, [isHistoryOpen]);
+
+    const navigateToKeyword = (q) => {
+        const trimmed = (q ?? '').trim();
+        if (!trimmed) {
+            if (isOnProducts) {
+                const next = new URLSearchParams(searchParams);
+                next.delete('keyword');
+                setSearchParams(next, { replace: false });
+            } else {
+                window.location.href = '/products';
+            }
+            return;
+        }
+        if (isOnProducts) {
+            setSearchParams({ keyword: trimmed }, { replace: false });
+        } else {
+            window.location.href = '/products?keyword=' + encodeURIComponent(trimmed);
+        }
+    };
 
     const handleSearch = (e) => {
         // Read the keyword from the input element, not from the event target.
@@ -65,23 +100,17 @@ function Header({ isAuthenticated, user, onLogout }) {
         // works for both key-down on the input and click on the button.
         const q = (inputRef.current?.value ?? '').trim();
         if (e.key === 'Enter' || e.type === 'click') {
-            if (!q) {
-                // Clear keyword
-                if (isOnProducts) {
-                    const next = new URLSearchParams(searchParams);
-                    next.delete('keyword');
-                    setSearchParams(next, { replace: false });
-                } else {
-                    window.location.href = '/products';
-                }
-                return;
-            }
-            if (isOnProducts) {
-                setSearchParams({ keyword: q }, { replace: false });
-            } else {
-                window.location.href = '/products?keyword=' + encodeURIComponent(q);
-            }
+            navigateToKeyword(q);
+            if (q) addTerm(q);
+            setIsHistoryOpen(false);
         }
+    };
+
+    const handleHistoryClick = (term) => {
+        if (inputRef.current) inputRef.current.value = term;
+        navigateToKeyword(term);
+        addTerm(term);
+        setIsHistoryOpen(false);
     };
 
     // ── nav active helpers ─────────────────────────────────────────────
@@ -128,13 +157,15 @@ function Header({ isAuthenticated, user, onLogout }) {
                     </NavLink>
                 </nav>
 
-                <div className="header__search">
+                <div className="header__search" ref={searchContainerRef}>
                     <input
                         type="search"
                         className="header__search-input"
                         placeholder="Tìm sản phẩm..."
                         ref={inputRef}
                         onKeyDown={handleSearch}
+                        onFocus={() => setIsHistoryOpen(true)}
+                        autoComplete="off"
                     />
                     <button
                         type="button"
@@ -144,6 +175,49 @@ function Header({ isAuthenticated, user, onLogout }) {
                     >
                         🔍
                     </button>
+
+                    {isHistoryOpen && history.length > 0 && (
+                        <div className="header__search-history" role="listbox" aria-label="Lịch sử tìm kiếm">
+                            <div className="header__search-history-header">
+                                <span>Lịch sử tìm kiếm</span>
+                                <button
+                                    type="button"
+                                    className="header__search-history-clear"
+                                    onClick={clear}
+                                    aria-label="Xóa tất cả lịch sử"
+                                >
+                                    Xóa tất cả
+                                </button>
+                            </div>
+                            <ul className="header__search-history-list">
+                                {history.map((term) => (
+                                    <li key={term} className="header__search-history-item">
+                                        <button
+                                            type="button"
+                                            className="header__search-history-term"
+                                            onClick={() => handleHistoryClick(term)}
+                                            role="option"
+                                            aria-selected="false"
+                                        >
+                                            <span aria-hidden="true" className="header__search-history-icon">🕘</span>
+                                            <span className="header__search-history-text">{term}</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="header__search-history-remove"
+                                            onClick={(ev) => {
+                                                ev.stopPropagation();
+                                                removeTerm(term);
+                                            }}
+                                            aria-label={`Xóa "${term}" khỏi lịch sử`}
+                                        >
+                                            ×
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
                 </div>
 
                 <div className="header__actions">
