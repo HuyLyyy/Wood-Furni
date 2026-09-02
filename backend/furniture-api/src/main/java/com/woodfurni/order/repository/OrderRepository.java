@@ -45,22 +45,4 @@ public interface OrderRepository extends MongoRepository<Order, String> {
     long countByCreatedAtBetween(Instant start, Instant end);
 
     long countByCreatedAtBetweenAndStatus(Instant start, Instant end, OrderStatus status);
-
-    /**
-     * Find orders created within [start, end] (inclusive). Either bound can
-     * be null, in which case only the other bound is applied.
-     *
-     * <p>The caller is expected to pass a {@link Pageable} with the desired
-     * sort (typically {@code createdAt DESC}) so the result is paginated
-     * server-side instead of pulling all orders into memory.
-     *
-     * <p>Used by the admin/staff "no other filter, just date" code path so
-     * that date filtering happens in MongoDB rather than after fetching a
-     * single page of arbitrary orders.
-     */
-    @Query("{ $and: [ "
-            + "{ $or: [ { 'createdAt': { $gte: ?0 } }, { ?0: null } ] }, "
-            + "{ $or: [ { 'createdAt': { $lte: ?1 } }, { ?1: null } ] } "
-            + "] }")
-    Page<Order> findByCreatedAtRange(Instant start, Instant end, Pageable pageable);
 }

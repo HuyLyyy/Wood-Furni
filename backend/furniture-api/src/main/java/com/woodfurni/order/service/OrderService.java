@@ -35,6 +35,10 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+// Note: avoid importing org.springframework.data.mongodb.core.query.Query (name collision
+// with repository Query). Use fully-qualified name when needed.
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -85,6 +89,7 @@ public class OrderService {
     private final PromotionService promotionService;
     private final NotificationClient notificationClient;
     private final ShippingService shippingService;
+    private final MongoTemplate mongoTemplate;
 
     private static final DateTimeFormatter ORDER_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
@@ -532,10 +537,44 @@ public class OrderService {
             // No date filter: use findAll with the existing pageable (has createdAt DESC sort)
             resultPage = orderRepository.findAll(pageable);
         } else {
-            // Date filter: query in Mongo with date range so pagination is server-side
-            resultPage = orderRepository.findByCreatedAtRange(createdFrom, createdTo, pageable);
+            // Date filter: build a Mongo Criteria with only the bounds that are non-null
+            // so we never feed a Java null into a BSON comparison expression.
+            resultPage = findAllByDateRange(createdFrom, createdTo, pageable);
         }
         return resultPage.map(order -> toResponse(order, null, null));
+    }
+
+    /**
+     * Find all orders whose {@code createdAt} is between {@code from} and
+     * {@code to} (inclusive). Either bound may be {@code null}, meaning
+     * "open ended" on that side — useful when the admin only fills one of
+     * the two date inputs.
+     *
+     * <p>The previous attempt encoded the same idea with a {@code @Query}
+     * annotation containing {@code { ?0: null }} expressions. That throws
+     * an NPE because Mongo BSON serialisation cannot handle a Java
+     * {@code null} parameter value inside the operator. Building the
+     * Criteria dynamically avoids the null entirely.
+     */
+    private Page<Order> findAllByDateRange(Instant from, Instant to, Pageable pageable) {
+        org.springframework.data.mongodb.core.query.Query mongoQuery =
+                new org.springframework.data.mongodb.core.query.Query();
+
+        if (from != null) {
+            mongoQuery.addCriteria(Criteria.where("createdAt").gte(from));
+        }
+        if (to != null) {
+            mongoQuery.addCriteria(Criteria.where("createdAt").lte(to));
+        }
+        // Apply sort + pagination directly from Pageable so pagination stays
+        // server-side. Pageable on MongoTemplate requires the same criteria
+        // we already collected.
+        long total = mongoTemplate.count(mongoQuery, Order.class);
+        org.springframework.data.mongodb.core.query.Query paged =
+                org.springframework.data.mongodb.core.query.Query.of(mongoQuery)
+                        .with(pageable);
+        List<Order> content = mongoTemplate.find(paged, Order.class);
+        return new PageImpl<>(content, pageable, total);
     }
 
     /**

@@ -67,3 +67,51 @@ function yyyyMmSplitter(s) {
     if (s.includes('/')) return s.split('/');
     return [s];
 }
+
+/**
+ * BUSINESS_TIMEZONE — Vietnam (UTC+7).
+ *
+ * Used by all "calendar day" filters: the user expects "2026-09-02" to mean
+ * the whole of 2 Sep in Vietnam time, not the whole of 2 Sep in UTC. Picking
+ * UTC causes orders created between 07:00–23:59 SGT on 2 Sep to be wrongly
+ * attributed to 3 Sep, and orders created between 00:00–06:59 SGT on 2 Sep
+ * to be wrongly attributed to 1 Sep.
+ */
+export const BUSINESS_TIMEZONE = 'Asia/Ho_Chi_Minh';
+
+// Vietnam has no daylight savings, so the offset is a fixed -7h.
+// To convert a "wall-clock time in VN" (e.g. 00:00:00 on 2026-09-02)
+// to its UTC instant, subtract 7 hours:
+//   instant = Date.UTC(y,m,d,H,M,S) - 7 * 3600 * 1000
+// And stringify that instant with `.toISOString()`.
+const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/**
+ * Convert a `<input type="date">` value (yyyy-MM-dd, treated as a calendar
+ * day in {@link BUSINESS_TIMEZONE}) to an ISO-8601 instant that represents
+ * either the start or end of that local day.
+ *
+ * For example, on 2026-09-02:
+ *   toIsoBusinessDay('2026-09-02', 'start') → '2026-09-01T17:00:00.000Z'
+ *   toIsoBusinessDay('2026-09-02', 'end')   → '2026-09-02T16:59:59.999Z'
+ *
+ * Returns null for null/invalid input.
+ */
+export function toIsoBusinessDay(yyyyMmDd, edge) {
+    if (!yyyyMmDd || typeof yyyyMmDd !== 'string') return null;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(yyyyMmDd);
+    if (!m) return null;
+    const y = +m[1];
+    const mo = +m[2];
+    const d = +m[3];
+    const isEnd = edge === 'end';
+    const hour = isEnd ? 23 : 0;
+    const minute = isEnd ? 59 : 0;
+    const second = isEnd ? 59 : 0;
+    const millis = isEnd ? 999 : 0;
+    // Build a UTC instant of the desired VN wall-clock and subtract the
+    // fixed VN offset. We use Date.UTC() (not `new Date(y,mo,d)`) so the
+    // computation doesn't depend on the host machine's timezone.
+    const localAsUtcMs = Date.UTC(y, mo - 1, d, hour, minute, second, millis);
+    return new Date(localAsUtcMs - VN_OFFSET_MS).toISOString();
+}

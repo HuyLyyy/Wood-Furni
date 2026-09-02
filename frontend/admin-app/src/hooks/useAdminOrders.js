@@ -1,14 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams as _useSearchParams } from 'react-router-dom';
 import { adminOrdersApi } from '../services/apiAdminOrders.js';
+import { toIsoBusinessDay } from '../utils/format.js';
 
 /**
  * useAdminOrders — drives the admin OrderListPage.
  *
  * URL-synced filters: orderNumber, status, customerId, createdFrom, createdTo, page.
  *
- * Date inputs on the FE are `<input type="date">` (yyyy-MM-dd). We pad
- * `createdTo` to end-of-day so a same-day filter returns the whole day.
+ * Date inputs on the FE are `<input type="date">` (yyyy-MM-dd). Each bound
+ * is treated as a full calendar day in BUSINESS_TIMEZONE (Asia/Ho_Chi_Minh):
+ *   - createdFrom → start-of-day in VN (00:00:00.000 +07:00)
+ *   - createdTo   → end-of-day   in VN (23:59:59.999 +07:00)
+ *
+ * This keeps the bounds stable regardless of where the browser is running
+ * and avoids the off-by-7-hours mismatch that made some orders show up under
+ * the wrong calendar day.
+ *
+ * Either bound may be left empty by the user; in that case the backend just
+ * applies the remaining bound (open on the other side).
  *
  * IMPORTANT: param keys in the URL MUST match what readFilters() reads and
  * what the API params are named. All keys use the full `createdFrom` /
@@ -45,20 +55,7 @@ export default function useAdminOrders({ pageSize = 20 } = {}) {
         inFlightRef.current += 1;
         setState((prev) => ({ ...prev, loading: true, error: null }));
 
-        const params = {
-            status: filters.status || undefined,
-            customerId: filters.customerId || undefined,
-            orderNumber: filters.orderNumber || undefined,
-            page: filters.page,
-            size: filters.size,
-        };
-        if (filters.createdFrom) {
-            params.createdFrom = `${filters.createdFrom}T00:00:00.000Z`;
-        }
-        if (filters.createdTo) {
-            params.createdTo = `${filters.createdTo}T23:59:59.999Z`;
-        }
-
+        const params = buildOrderParams(filters);
         adminOrdersApi
             .list(params)
             .then((result) => {
@@ -91,19 +88,7 @@ export default function useAdminOrders({ pageSize = 20 } = {}) {
         inFlightRef.current += 1;
         setState((prev) => ({ ...prev, loading: true, error: null }));
 
-        const params = {
-            status: filters.status || undefined,
-            customerId: filters.customerId || undefined,
-            orderNumber: filters.orderNumber || undefined,
-            page: filters.page,
-            size: filters.size,
-        };
-        if (filters.createdFrom) {
-            params.createdFrom = `${filters.createdFrom}T00:00:00.000Z`;
-        }
-        if (filters.createdTo) {
-            params.createdTo = `${filters.createdTo}T23:59:59.999Z`;
-        }
+        const params = buildOrderParams(filters);
         adminOrdersApi.list(params)
             .then((result) => {
                 if (reqIdRef.current !== myReq) return;
@@ -151,6 +136,35 @@ export default function useAdminOrders({ pageSize = 20 } = {}) {
     }, [setSearchParams]);
 
     return { ...state, filters, setFilters, setPage, refresh };
+}
+
+/**
+ * Build the query-param object sent to GET /orders.
+ *
+ * Date logic: a `<input type="date">` value is interpreted as a calendar day
+ * in BUSINESS_TIMEZONE (Asia/Ho_Chi_Minh). We convert to UTC instants at
+ * 00:00 and 23:59:59.999 LOCAL VN so a same-day filter returns exactly the
+ * orders created during that day in Vietnam time.
+ *
+ * Either bound can be omitted — the backend then leaves that side open.
+ */
+function buildOrderParams(filters) {
+    const params = {
+        status: filters.status || undefined,
+        customerId: filters.customerId || undefined,
+        orderNumber: filters.orderNumber || undefined,
+        page: filters.page,
+        size: filters.size,
+    };
+    if (filters.createdFrom) {
+        const iso = toIsoBusinessDay(filters.createdFrom, 'start');
+        if (iso) params.createdFrom = iso;
+    }
+    if (filters.createdTo) {
+        const iso = toIsoBusinessDay(filters.createdTo, 'end');
+        if (iso) params.createdTo = iso;
+    }
+    return params;
 }
 
 function useURLSearchParams() {
