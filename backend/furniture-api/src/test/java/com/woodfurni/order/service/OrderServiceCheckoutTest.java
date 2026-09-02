@@ -22,6 +22,7 @@ import com.woodfurni.promotion.service.PromotionService;
 import com.woodfurni.shipping.dto.ShippingCalculateResponse;
 import com.woodfurni.shipping.service.ShippingService;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -74,6 +75,7 @@ class OrderServiceCheckoutTest {
     private PromotionService promotionService;
     private NotificationClient notificationClient;
     private ShippingService shippingService;
+    private MongoTemplate mongoTemplate;
     private OrderService orderService;
 
     @BeforeEach
@@ -87,11 +89,12 @@ class OrderServiceCheckoutTest {
         promotionService = mock(PromotionService.class);
         notificationClient = mock(NotificationClient.class);
         shippingService = mock(ShippingService.class);
+        mongoTemplate = mock(MongoTemplate.class);
 
         orderService = new OrderService(
                 orderRepository, cartRepository, userRepository,
                 inventoryService, paymentService, promotionService,
-                notificationClient, shippingService);
+                notificationClient, shippingService, mongoTemplate);
 
         // Cart with 2 items: 2x 500k + 1x 300k = 1,300,000
         CartItem itemA = CartItem.builder()

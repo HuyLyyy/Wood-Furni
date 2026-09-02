@@ -16,6 +16,7 @@ import com.woodfurni.order.repository.OrderRepository;
 import com.woodfurni.promotion.service.PromotionService;
 import com.woodfurni.shipping.service.ShippingService;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -70,11 +71,12 @@ class OrderServiceTrackingUpdateTest {
         promotionService = mock(PromotionService.class);
         notificationClient = mock(NotificationClient.class);
         shippingService = mock(ShippingService.class);
+        MongoTemplate mongoTemplate = mock(MongoTemplate.class);
 
         orderService = new OrderService(
                 orderRepository, cartRepository, userRepository,
                 inventoryService, paymentService, promotionService,
-                notificationClient, shippingService);
+                notificationClient, shippingService, mongoTemplate);
 
         // Order saved → return what was passed (so chained reads see the
         // mutations we just made: tracking updates + status flip).
