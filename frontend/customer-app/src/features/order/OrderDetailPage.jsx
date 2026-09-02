@@ -7,6 +7,7 @@ import { reviewsApi } from '../../services/apiReviews.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useRealtimeEvent } from '../../hooks/useRealtime.js';
 import { Button, useConfirmDialog } from '../../components/index.js';
+import CancelOrderModal from '../../components/CancelOrderModal.jsx';
 import {
     ORDER_STATUS,
     PAYMENT_STATUS,
@@ -27,7 +28,7 @@ import './OrderDetailPage.css';
  *   2. Status timeline (from order.statusHistory)
  *   3. Items + shipping address + summary
  *   4. Actions:
- *      - Cancel (if PENDING or CONFIRMED) → confirm + POST /orders/{id}/cancel
+ *      - Cancel (if PENDING or CONFIRMED) → CancelOrderModal + POST /orders/{id}/cancel
  *      - Review (if DELIVERED) for each item not yet reviewed
  *   5. Realtime: subscribes to order.status.updated for this orderId; on
  *      match, re-fetches the order and toasts.
@@ -42,6 +43,7 @@ export default function OrderDetailPage() {
     const [error, setError] = useState(null);
     const [actionBusy, setActionBusy] = useState(null);
     const [reviewedProducts, setReviewedProducts] = useState(() => new Set());
+    const [cancelModalOpen, setCancelModalOpen] = useState(false);
 
     usePageTitle(order?.orderNumber || 'Đơn hàng');
 
@@ -106,21 +108,25 @@ export default function OrderDetailPage() {
     }, isAuthenticated);
 
     // -------- handlers --------
-    const handleCancel = async () => {
-        const ok = await confirm({
-            title: 'Huỷ đơn hàng?',
-            message: `Bạn có chắc muốn huỷ đơn ${order.orderNumber}? Hành động này không thể hoàn tác.`,
-            confirmLabel: 'Huỷ đơn',
-            danger: true,
-        });
-        if (!ok) return;
+    const openCancelModal = () => {
+        if (actionBusy) return;
+        setCancelModalOpen(true);
+    };
+
+    const closeCancelModal = () => {
+        if (actionBusy === 'cancel') return;
+        setCancelModalOpen(false);
+    };
+
+    const handleCancelConfirm = async (reason) => {
         setActionBusy('cancel');
         try {
-            const updated = await ordersApi.cancelOrder(order.id);
+            const updated = await ordersApi.cancelOrder(order.id, reason);
             setOrder(updated);
             toast.success('Đã huỷ đơn hàng');
+            setCancelModalOpen(false);
         } catch {
-            // toast already shown
+            // toast already shown by axios interceptor
         } finally {
             setActionBusy(null);
         }
@@ -273,7 +279,7 @@ export default function OrderDetailPage() {
                     <Button
                         variant="outline"
                         size="md"
-                        onClick={handleCancel}
+                        onClick={openCancelModal}
                         loading={actionBusy === 'cancel'}
                     >
                         Huỷ đơn hàng
@@ -281,7 +287,9 @@ export default function OrderDetailPage() {
                 ) : (
                     <p className="order-detail-page__action-hint">
                         {order.status === 'CANCELLED'
-                            ? 'Đơn hàng đã được huỷ.'
+                            ? order.cancelReason
+                                ? `Đơn hàng đã được huỷ. Lý do: ${order.cancelReason}`
+                                : 'Đơn hàng đã được huỷ.'
                             : order.status === 'DELIVERED'
                             ? 'Đơn hàng đã giao thành công.'
                             : 'Đơn hàng đang được xử lý, không thể huỷ.'}
@@ -291,6 +299,14 @@ export default function OrderDetailPage() {
             </section>
 
             {dialog}
+
+            <CancelOrderModal
+                open={cancelModalOpen}
+                orderNumber={order.orderNumber}
+                loading={actionBusy === 'cancel'}
+                onConfirm={handleCancelConfirm}
+                onCancel={closeCancelModal}
+            />
         </div>
     );
 }

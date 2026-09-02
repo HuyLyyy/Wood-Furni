@@ -21,4 +21,10 @@ public class StatusHistoryEntry {
     private Instant changedAt;
 
     private String changedBy;
+
+    /**
+     * Optional human-readable note attached to this status change
+     * (e.g. customer's cancellation reason).
+     */
+    private String note;
 }

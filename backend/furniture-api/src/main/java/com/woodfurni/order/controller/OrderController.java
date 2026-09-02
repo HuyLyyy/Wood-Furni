@@ -176,16 +176,19 @@ public class OrderController {
     @PostMapping("/{id}/cancel")
     @PreAuthorize("hasAnyRole('CUSTOMER', 'ADMIN')")
     @Operation(summary = "Cancel order",
-               description = "Customer can cancel PENDING/CONFIRMED orders. ADMIN can cancel any order.")
+               description = "Customer can cancel PENDING/CONFIRMED orders. ADMIN can cancel any order. "
+                       + "Optional {@code reason} is recorded for audit / customer-service follow-up.")
     public ResponseEntity<ApiResponse<OrderResponse>> cancelOrder(
             @AuthenticationPrincipal UserDetails userDetails,
-            @PathVariable String id) {
+            @PathVariable String id,
+            @RequestBody(required = false) java.util.Map<String, String> body) {
 
         String userId = userDetails.getUsername();
         boolean isAdmin = userDetails.getAuthorities().stream()
                 .anyMatch(a -> "ROLE_ADMIN".equals(((SimpleGrantedAuthority) a).getAuthority()));
 
-        OrderResponse order = orderService.cancelOrder(id, userId, isAdmin);
+        String reason = body != null ? body.get("reason") : null;
+        OrderResponse order = orderService.cancelOrder(id, userId, isAdmin, reason);
         return ResponseEntity.ok(ApiResponse.success("Order cancelled", order));
     }
 

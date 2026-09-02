@@ -89,6 +89,18 @@ public class Order {
     @Builder.Default
     private List<TrackingUpdate> trackingUpdates = new ArrayList<>();
 
+    /**
+     * Reason provided by the customer (or admin) when this order was cancelled.
+     * Populated only when {@link #status} == {@link OrderStatus#CANCELLED}.
+     */
+    private String cancelReason;
+
+    /**
+     * Timestamp of the cancellation. Mirrors the CANCELLED entry in
+     * {@link #statusHistory} but is denormalised for quick reads.
+     */
+    private Instant cancelledAt;
+
     @CreatedDate
     private Instant createdAt;
 
@@ -96,6 +108,14 @@ public class Order {
     private Instant updatedAt;
 
     public void addStatusHistory(String status, String changedBy) {
+        addStatusHistory(status, changedBy, null);
+    }
+
+    /**
+     * Same as {@link #addStatusHistory(String, String)} but also records an
+     * optional free-text note (e.g. the customer's reason for cancelling).
+     */
+    public void addStatusHistory(String status, String changedBy, String note) {
         if (this.statusHistory == null) {
             this.statusHistory = new ArrayList<>();
         }
@@ -103,6 +123,7 @@ public class Order {
                 .status(status)
                 .changedAt(Instant.now())
                 .changedBy(changedBy)
+                .note(note)
                 .build());
     }
 

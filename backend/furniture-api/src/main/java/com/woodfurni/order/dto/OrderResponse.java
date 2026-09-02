@@ -38,6 +38,10 @@ public class OrderResponse {
     private PaymentMethod paymentMethod;
     private List<StatusHistoryEntry> statusHistory;
     private List<TrackingUpdate> trackingUpdates;
+    /** Customer's (or admin's) reason when the order was cancelled. */
+    private String cancelReason;
+    /** Timestamp of cancellation, mirrored from statusHistory. */
+    private Instant cancelledAt;
     private Instant createdAt;
     private Instant updatedAt;
 }

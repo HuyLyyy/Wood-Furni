@@ -1,0 +1,197 @@
+.cancel-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 310;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.cancel-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    animation: cancel-modal-fadein 0.15s ease;
+}
+
+.cancel-modal__panel {
+    position: relative;
+    background: #fff;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    padding: 28px;
+    max-width: 480px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    animation: cancel-modal-pop 0.15s ease;
+}
+
+.cancel-modal__title {
+    margin: 0 0 6px;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.cancel-modal__subtitle {
+    margin: 0 0 20px;
+    color: var(--color-text-muted, #6b6b6b);
+    font-size: 14px;
+    line-height: 1.55;
+}
+
+.cancel-modal__reasons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+
+.cancel-modal__reason {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--color-border, #e2e0dc);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s;
+    background: #fff;
+}
+
+.cancel-modal__reason:hover {
+    background: var(--color-bg-soft, #f9f5ef);
+}
+
+.cancel-modal__reason.is-selected {
+    border-color: var(--color-primary, #5a3a22);
+    background: var(--color-bg-soft, #f9f5ef);
+}
+
+.cancel-modal__reason input[type='radio'] {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.cancel-modal__reason-radio {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--color-border, #c9c4bd);
+    border-radius: 50%;
+    flex-shrink: 0;
+    position: relative;
+    transition: border-color 0.12s;
+}
+
+.cancel-modal__reason.is-selected .cancel-modal__reason-radio {
+    border-color: var(--color-primary, #5a3a22);
+}
+
+.cancel-modal__reason.is-selected .cancel-modal__reason-radio::after {
+    content: '';
+    position: absolute;
+    inset: 3px;
+    border-radius: 50%;
+    background: var(--color-primary, #5a3a22);
+}
+
+.cancel-modal__reason-label {
+    font-size: 14px;
+    color: var(--color-text);
+    line-height: 1.4;
+}
+
+.cancel-modal__other {
+    margin-bottom: 20px;
+}
+
+.cancel-modal__other-label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text);
+    margin-bottom: 8px;
+}
+
+.cancel-modal__textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border, #e2e0dc);
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 72px;
+    transition: border-color 0.12s;
+}
+
+.cancel-modal__textarea:focus {
+    outline: none;
+    border-color: var(--color-primary, #5a3a22);
+}
+
+.cancel-modal__textarea:disabled {
+    background: #f4f4f4;
+    cursor: not-allowed;
+}
+
+.cancel-modal__counter {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--color-text-muted, #9a9a9a);
+    text-align: right;
+}
+
+.cancel-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.cancel-modal__btn {
+    padding: 10px 20px;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 14px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s, opacity 0.12s;
+}
+
+.cancel-modal__btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.cancel-modal__btn--ghost {
+    background: transparent;
+    color: var(--color-text);
+    border-color: var(--color-border, #e2e0dc);
+}
+
+.cancel-modal__btn--ghost:hover:not(:disabled) {
+    background: var(--color-bg-soft, #f9f5ef);
+}
+
+.cancel-modal__btn--danger {
+    background: var(--color-danger, #d63031);
+    color: #fff;
+}
+
+.cancel-modal__btn--danger:hover:not(:disabled) {
+    background: #b91c1c;
+}
+
+@keyframes cancel-modal-fadein {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes cancel-modal-pop {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}

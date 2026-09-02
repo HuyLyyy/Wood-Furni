@@ -790,9 +790,14 @@ public class OrderService {
 
     /**
      * Cancel order by customer (only PENDING/CONFIRMED) or admin.
+     *
+     * @param reason optional free-text reason supplied by the customer (or
+     *               admin) explaining why the order is being cancelled. Stored
+     *               on {@link Order#getCancelReason()} and appended as the
+     *               note of the CANCELLED {@code statusHistory} entry.
      */
     @Transactional
-    public OrderResponse cancelOrder(String orderId, String userId, boolean isAdmin) {
+    public OrderResponse cancelOrder(String orderId, String userId, boolean isAdmin, String reason) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new EntityNotFoundException("Order not found: " + orderId));
 
@@ -804,7 +809,36 @@ public class OrderService {
             throw new IllegalArgumentException("Only PENDING or CONFIRMED orders can be cancelled");
         }
 
-        return updateStatus(orderId, OrderStatus.CANCELLED.name(), userId, isAdmin ? "ADMIN" : "CUSTOMER");
+        String normalizedReason = (reason == null) ? null : reason.trim();
+        if (normalizedReason != null && normalizedReason.isEmpty()) {
+            normalizedReason = null;
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+        order.setCancelReason(normalizedReason);
+        order.setCancelledAt(java.time.Instant.now());
+        order.addStatusHistory(
+                OrderStatus.CANCELLED.name(),
+                isAdmin ? "ADMIN" : "CUSTOMER",
+                normalizedReason);
+
+        // Side effects: release reserved inventory + mark payment refunded.
+        releaseInventoryForOrder(order);
+        order.setPaymentStatus(PaymentStatus.REFUNDED);
+
+        Order saved = orderRepository.save(order);
+
+        try {
+            notificationClient.notifyOrderStatus(
+                    saved.getId(),
+                    saved.getOrderNumber(),
+                    saved.getStatus().name(),
+                    saved.getCustomerId());
+        } catch (Exception ex) {
+            log.warn("Failed to notify cancellation for order {}: {}", saved.getId(), ex.getMessage());
+        }
+
+        return toResponse(saved, null, null);
     }
 
     /**
@@ -1263,6 +1297,8 @@ public class OrderService {
                 .paymentMethod(paymentMethod)
                 .statusHistory(order.getStatusHistory())
                 .trackingUpdates(order.getTrackingUpdates())
+                .cancelReason(order.getCancelReason())
+                .cancelledAt(order.getCancelledAt())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .build();
