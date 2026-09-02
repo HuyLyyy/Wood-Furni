@@ -10,8 +10,8 @@ import apiClient from './apiClient';
  * applied at /orders/checkout time.
  */
 export const promotionsApi = {
-    validate: (code, cartTotal) =>
+    validate: (code, cartTotal, config = {}) =>
         apiClient
-            .post('/promotions/validate', { code, cartTotal })
+            .post('/promotions/validate', { code, cartTotal }, config)
             .then((r) => r.data.data),
 };
