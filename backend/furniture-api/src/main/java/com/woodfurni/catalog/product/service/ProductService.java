@@ -55,9 +55,81 @@ public class ProductService {
      * - Supported: price,asc / -price / ratingAverage
      */
     public PageResponse<ProductResponse> searchProducts(ProductSearchRequest request, int page, int size, boolean isStaff) {
-        // ── 1. Build base Mongo query with non-price filters only
-        Query query = new Query();
+        // ── 1. Build the base Mongo query with non-price filters only
+        Query query = buildBaseQuery(request, isStaff);
         boolean hasPriceFilter = request.getMinPrice() != null || request.getMaxPrice() != null;
+        Sort sort = buildSort(request.getSort());
+
+        // ── 2. Fetch only the requested page from MongoDB.
+        //
+        //    The previous version called `mongoTemplate.find(query, Product.class)`
+        //    with no skip/limit, which loaded the entire ACTIVE catalog into
+        //    the JVM before paginating in Java. Once the catalog grew past a
+        //    few hundred SKUs the response exceeded the 15 s axios timeout on
+        //    the storefront and the customer saw "Không thể tải sản phẩm.
+        //    Vui lòng thử lại.".
+        //
+        //    Two cases:
+        //      a) no price filter                  → simple: page + sort in DB,
+        //                                            one round-trip, sub-second
+        //                                            response.
+        //      b) price filter present             → the effective price is
+        //                                            `salePrice` (if positive)
+        //                                            else `price`, which Mongo
+        //                                            can't express in a single
+        //                                            query. We still have to
+        //                                            scan in Java, but we only
+        //                                            page across the matching
+        //                                            subset, not the whole
+        //                                            collection.
+        java.math.BigDecimal minP = request.getMinPrice();
+        java.math.BigDecimal maxP = request.getMaxPrice();
+
+        List<Product> pageItems;
+        long total;
+
+        if (!hasPriceFilter) {
+            // Case (a): cheap path. Mongo handles skip/limit/sort via indexes.
+            // We rebuild a fresh Query so the same base criteria get applied
+            // twice (once for the count, once for the page) without mutating
+            // the shared instance.
+            Query paged = buildBaseQuery(request, isStaff).with(sort).skip((long) page * size).limit(size);
+            pageItems = mongoTemplate.find(paged, Product.class);
+            total = mongoTemplate.count(query, Product.class);
+        } else {
+            // Case (b): fetch all matches (still has to live in memory because
+            // the effective-price rule isn't a single BSON expression), then
+            // sort and paginate in Java.
+            List<Product> candidates = mongoTemplate.find(query.with(sort), Product.class);
+            List<Product> filtered = candidates.stream()
+                    .filter(p -> {
+                        java.math.BigDecimal eff = (p.getSalePrice() != null && p.getSalePrice().signum() > 0)
+                                ? p.getSalePrice() : p.getPrice();
+                        if (eff == null) return false;
+                        if (minP != null && eff.compareTo(minP) < 0) return false;
+                        if (maxP != null && eff.compareTo(maxP) > 0) return false;
+                        return true;
+                    })
+                    .collect(Collectors.toList());
+
+            total = filtered.size();
+            int fromIndex = Math.min(Math.max(0, page * size), filtered.size());
+            int toIndex = Math.min(fromIndex + size, filtered.size());
+            pageItems = filtered.subList(fromIndex, toIndex);
+        }
+
+        return buildPageResponse(pageItems, page, size, total);
+    }
+
+    /**
+     * Build the non-price portion of the product search query.
+     *
+     * Extracted so the same criteria can be applied twice in case (a) — once
+     * for the page and once for the count — without any cross-talk between
+     * Spring Data Mongo's `skip`/`limit`/`sort` modifiers.
+     */
+    private Query buildBaseQuery(ProductSearchRequest request, boolean isStaff) {
+        Query query = new Query();
 
         if (request.getKeyword() != null && !request.getKeyword().isBlank()) {
             // Build a keyword search that is both correct AND fast:
@@ -83,9 +155,6 @@ public class ProductService {
 
             Criteria skuExact;
             if (looksLikeSku(raw)) {
-                // Equality match is index-friendly. Compare against the
-                // lowered keyword, and against the original casing for
-                // collections that haven't been migrated yet.
                 skuExact = new Criteria().orOperator(
                         Criteria.where("sku").is(lowered),
                         Criteria.where("sku").is(raw)
@@ -122,40 +191,7 @@ public class ProductService {
                 query.addCriteria(Criteria.where("materialIds").in(materialIds));
             }
         }
-
-        Sort sort = buildSort(request.getSort());
-
-        // ── 2. Fetch candidates. When a price filter is set, fetch all matching
-        // products (no skip/limit) because the price semantics require both
-        // `salePrice` and `price` fields, which is awkward to express as a single
-        // Mongo query. We then filter in Java — collection is small.
-        List<Product> candidates = mongoTemplate.find(query, Product.class);
-
-        // ── 3. Apply effective-price filter and sort in Java
-        java.math.BigDecimal minP = request.getMinPrice();
-        java.math.BigDecimal maxP = request.getMaxPrice();
-
-        java.util.List<Product> filtered = hasPriceFilter
-                ? candidates.stream()
-                    .filter(p -> {
-                        java.math.BigDecimal eff = (p.getSalePrice() != null && p.getSalePrice().signum() > 0)
-                                ? p.getSalePrice() : p.getPrice();
-                        if (eff == null) return false;
-                        if (minP != null && eff.compareTo(minP) < 0) return false;
-                        if (maxP != null && eff.compareTo(maxP) > 0) return false;
-                        return true;
-                    })
-                    .sorted(productComparator(sort))
-                    .collect(Collectors.toList())
-                : candidates;
-
-        // ── 4. Paginate
-        long total = filtered.size();
-        int fromIndex = Math.min(Math.max(0, page * size), filtered.size());
-        int toIndex = Math.min(fromIndex + size, filtered.size());
-        List<Product> pageItems = filtered.subList(fromIndex, toIndex);
-
-        return buildPageResponse(pageItems, page, size, total);
+        return query;
     }
 
     private java.util.Comparator<Product> productComparator(Sort sort) {
