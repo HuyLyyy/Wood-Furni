@@ -37,8 +37,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
-// Note: avoid importing org.springframework.data.mongodb.core.query.Query (name collision
-// with repository Query). Use fully-qualified name when needed.
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.stereotype.Service;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -550,29 +550,37 @@ public class OrderService {
      * "open ended" on that side — useful when the admin only fills one of
      * the two date inputs.
      *
-     * <p>The previous attempt encoded the same idea with a {@code @Query}
-     * annotation containing {@code { ?0: null }} expressions. That throws
-     * an NPE because Mongo BSON serialisation cannot handle a Java
-     * {@code null} parameter value inside the operator. Building the
-     * Criteria dynamically avoids the null entirely.
+     * <p>The previous attempt encoded the same idea in two ways and both
+     * were broken:
+     * <ol>
+     *   <li>A {@code @Query} annotation containing {@code { ?0: null }}
+     *       expressions threw an NPE because Mongo BSON serialisation
+     *       cannot handle a Java {@code null} parameter value inside the
+     *       operator.</li>
+     *   <li>Adding two separate {@code Criteria.where("createdAt")} entries
+     *       (one {@code .gte(from)}, one {@code .lte(to)}) raised
+     *       {@code InvalidMongoDbApiUsageException} because Spring treats
+     *       duplicate criteria on the same field as conflicting conditions
+     *       rather than AND-combining them.</li>
+     * </ol>
+     * The fix is to build a single {@link Criteria} for the field, call
+     * {@code .gte(from)} / {@code .lte(to)} on the same instance (only when
+     * the bound is non-null), and add that single Criteria to the query.
      */
     private Page<Order> findAllByDateRange(Instant from, Instant to, Pageable pageable) {
-        org.springframework.data.mongodb.core.query.Query mongoQuery =
-                new org.springframework.data.mongodb.core.query.Query();
-
-        if (from != null) {
-            mongoQuery.addCriteria(Criteria.where("createdAt").gte(from));
+        Criteria createdAtCriteria = Criteria.where("createdAt");
+        if (from != null && to != null) {
+            createdAtCriteria = createdAtCriteria.gte(from).lte(to);
+        } else if (from != null) {
+            createdAtCriteria = createdAtCriteria.gte(from);
+        } else if (to != null) {
+            createdAtCriteria = createdAtCriteria.lte(to);
         }
-        if (to != null) {
-            mongoQuery.addCriteria(Criteria.where("createdAt").lte(to));
-        }
-        // Apply sort + pagination directly from Pageable so pagination stays
-        // server-side. Pageable on MongoTemplate requires the same criteria
-        // we already collected.
+        Query mongoQuery = new Query(createdAtCriteria);
+        // count first (full query, no paging)
         long total = mongoTemplate.count(mongoQuery, Order.class);
-        org.springframework.data.mongodb.core.query.Query paged =
-                org.springframework.data.mongodb.core.query.Query.of(mongoQuery)
-                        .with(pageable);
+        // then paged query — apply Pageable (skip/limit + sort) on the SAME criteria
+        Query paged = Query.of(mongoQuery).with(pageable);
         List<Order> content = mongoTemplate.find(paged, Order.class);
         return new PageImpl<>(content, pageable, total);
     }
