@@ -60,8 +60,21 @@ public class ProductService {
         boolean hasPriceFilter = request.getMinPrice() != null || request.getMaxPrice() != null;
 
         if (request.getKeyword() != null && !request.getKeyword().isBlank()) {
-            String kw = request.getKeyword().toLowerCase().trim();
+            // Trim, collapse internal whitespace, and escape regex meta-characters
+            // so the substring match is literal (avoids `.`/`*`/`+` etc. accidentally
+            // becoming wildcards). Both sides are normalized to lowercase; we still
+            // pass the `i` flag to Mongo so it can fall back to case-insensitive
+            // matching against any pre-existing index that mixes cases.
+            String raw = request.getKeyword().trim().toLowerCase();
+            String kw = escapeRegex(raw);
+
+            // SKU searches are very common in the admin app — give them an
+            // exact-match pass so the right product always shows up first,
+            // even if the user's query happens to be a substring of another
+            // field. The substring fall-back across name/description/sku
+            // remains for free-text queries.
             query.addCriteria(new Criteria().orOperator(
+                    Criteria.where("sku").regex("^" + kw + "$", "i"),
                     Criteria.where("name").regex(kw, "i"),
                     Criteria.where("description").regex(kw, "i"),
                     Criteria.where("sku").regex(kw, "i")
@@ -475,5 +488,16 @@ public class ProductService {
                 .replaceAll("\\s+", "-")
                 .replaceAll("-+", "-")
                 .replaceAll("^-|-$", "");
+    }
+
+    /**
+     * Escape characters that have special meaning in a Java/Mongo regex so the
+     * resulting pattern is matched literally. Without this, a query such as
+     * {@code "A3D.006"} would be interpreted as "A3D" followed by any char and
+     * "006", silently returning unrelated SKUs.
+     */
+    private static String escapeRegex(String input) {
+        if (input == null) return null;
+        return input.replaceAll("([\\\\^$.|?*+()\\[\\]{}\\\\])", "\\\\$1");
     }
 }
