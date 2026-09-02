@@ -34,6 +34,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -387,7 +388,7 @@ public class OrderService {
         log.info("getOrders called - userId: {}, isStaff: {}, status: {}, customerId: {}, orderNumber: {}, createdFrom: {}, createdTo: {}",
                 userId, isStaff, status, customerId, orderNumber, createdFrom, createdTo);
 
-        Pageable pageable = PageRequest.of(page, size);
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
 
         if (!isStaff) {
             log.info("User is not staff, returning only their own orders");
@@ -525,15 +526,16 @@ public class OrderService {
 
         // No specific filter - apply date filter on all orders if provided
         log.info("No filters, returning all orders (with optional date filter)");
-        Page<Order> allOrdersPage = orderRepository.findAll(pageable);
+
+        Page<Order> resultPage;
         if (createdFrom == null && createdTo == null) {
-            return allOrdersPage.map(order -> toResponse(order, null, null));
+            // No date filter: use findAll with the existing pageable (has createdAt DESC sort)
+            resultPage = orderRepository.findAll(pageable);
+        } else {
+            // Date filter: query in Mongo with date range so pagination is server-side
+            resultPage = orderRepository.findByCreatedAtRange(createdFrom, createdTo, pageable);
         }
-        List<OrderResponse> filtered = allOrdersPage.getContent().stream()
-                .filter(o -> isInDateRange(o.getCreatedAt(), createdFrom, createdTo))
-                .map(order -> toResponse(order, null, null))
-                .collect(Collectors.toList());
-        return new PageImpl<>(filtered, pageable, filtered.size());
+        return resultPage.map(order -> toResponse(order, null, null));
     }
 
     /**
