@@ -60,24 +60,45 @@ public class ProductService {
         boolean hasPriceFilter = request.getMinPrice() != null || request.getMaxPrice() != null;
 
         if (request.getKeyword() != null && !request.getKeyword().isBlank()) {
-            // Trim, collapse internal whitespace, and escape regex meta-characters
-            // so the substring match is literal (avoids `.`/`*`/`+` etc. accidentally
-            // becoming wildcards). Both sides are normalized to lowercase; we still
-            // pass the `i` flag to Mongo so it can fall back to case-insensitive
-            // matching against any pre-existing index that mixes cases.
-            String raw = request.getKeyword().trim().toLowerCase();
-            String kw = escapeRegex(raw);
+            // Build a keyword search that is both correct AND fast:
+            //
+            //   * SKUs are alphanumeric and contiguous. A user typing one in
+            //     almost always wants an exact match on `sku` (no substring,
+            //     no regex). We detect that shape and run a direct equality
+            //     query that the existing unique index on `sku` can serve in
+            //     O(log N). Without this branch, MongoDB falls back to a
+            //     case-insensitive regex scan of the whole collection.
+            //
+            //   * Free-text queries (containing spaces or non-SKU chars) go
+            //     through the existing $or + regex path which is still
+            //     cheap because the text-style filter runs against indexed
+            //     `name`/`description` fields.
+            //
+            //   * Meta-characters in the keyword are escaped so the regex
+            //     subqueries match literally (e.g. `A3D.006` won't accidentally
+            //     match `A3D-006`).
+            String raw = request.getKeyword().trim();
+            String lowered = raw.toLowerCase();
+            String escaped = escapeRegex(lowered);
 
-            // SKU searches are very common in the admin app — give them an
-            // exact-match pass so the right product always shows up first,
-            // even if the user's query happens to be a substring of another
-            // field. The substring fall-back across name/description/sku
-            // remains for free-text queries.
+            Criteria skuExact;
+            if (looksLikeSku(raw)) {
+                // Equality match is index-friendly. Compare against the
+                // lowered keyword, and against the original casing for
+                // collections that haven't been migrated yet.
+                skuExact = new Criteria().orOperator(
+                        Criteria.where("sku").is(lowered),
+                        Criteria.where("sku").is(raw)
+                );
+            } else {
+                skuExact = Criteria.where("sku").regex("^" + escaped + "$", "i");
+            }
+
             query.addCriteria(new Criteria().orOperator(
-                    Criteria.where("sku").regex("^" + kw + "$", "i"),
-                    Criteria.where("name").regex(kw, "i"),
-                    Criteria.where("description").regex(kw, "i"),
-                    Criteria.where("sku").regex(kw, "i")
+                    skuExact,
+                    Criteria.where("name").regex(escaped, "i"),
+                    Criteria.where("description").regex(escaped, "i"),
+                    Criteria.where("sku").regex(escaped, "i")
             ));
         }
         if (!isStaff) {
@@ -499,5 +520,17 @@ public class ProductService {
     private static String escapeRegex(String input) {
         if (input == null) return null;
         return input.replaceAll("([\\\\^$.|?*+()\\[\\]{}\\\\])", "\\\\$1");
+    }
+
+    /**
+     * Heuristic: a string that looks like an SKU is short, contains no
+     * whitespace, and is made entirely of letters, digits, dashes, dots and
+     * underscores. These are the only shapes the equality branch can answer
+     * reliably via the unique index on `sku`.
+     */
+    private static boolean looksLikeSku(String s) {
+        if (s == null) return false;
+        if (s.length() > 64) return false;  // SKUs longer than this are almost certainly free-text
+        return s.matches("[A-Za-z0-9._-]+");
     }
 }
