@@ -57,7 +57,13 @@ function Header({ isAuthenticated, user, onLogout }) {
     }, [isOnProducts, searchParams]);
 
     const handleSearch = (e) => {
-        const q = e.target.value.trim();
+        // Read the keyword from the input element, not from the event target.
+        // When the event is fired by clicking the search button (or its
+        // inner icon), `e.target` is the button, which has no `value`
+        // property, so `e.target.value.trim()` would throw TypeError and
+        // the search would silently no-op. Reading from `inputRef.current`
+        // works for both key-down on the input and click on the button.
+        const q = (inputRef.current?.value ?? '').trim();
         if (e.key === 'Enter' || e.type === 'click') {
             if (!q) {
                 // Clear keyword
