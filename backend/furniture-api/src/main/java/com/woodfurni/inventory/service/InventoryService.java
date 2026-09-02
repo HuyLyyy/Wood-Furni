@@ -29,8 +29,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import org.bson.types.ObjectId;
-
 /**
  * Inventory management service.
  *
@@ -286,21 +284,20 @@ public class InventoryService {
         if (delta == 0) {
             throw new IllegalArgumentException("Delta cannot be zero");
         }
-
-        ObjectId productIdObj = toObjectId(productId);
-        if (productIdObj == null) {
-            throw new EntityNotFoundException("Invalid productId format: " + productId);
+        if (productId == null || productId.isBlank()) {
+            throw new EntityNotFoundException("Invalid productId: " + productId);
         }
 
+        // productId is stored as String in the Inventory document.
         Query query;
         Update update;
 
         if (delta > 0) {
-            query = new Query(Criteria.where("productId").is(productIdObj));
+            query = new Query(Criteria.where("productId").is(productId));
             update = new Update()
                     .inc("quantityOnHand", delta);
         } else {
-            query = new Query(Criteria.where("productId").is(productIdObj)
+            query = new Query(Criteria.where("productId").is(productId)
                     .and("quantityOnHand").gte(-delta));
             update = new Update()
                     .inc("quantityOnHand", delta);
@@ -333,22 +330,6 @@ public class InventoryService {
         maybeNotifyLowStock(result, previousOnHand);
 
         return toResponse(result, null, null);
-    }
-
-    /**
-     * Convert a string productId to MongoDB ObjectId.
-     * The inventories collection stores productId as ObjectId, not String.
-     * Returns null if the string is not a valid 24-char hex ObjectId.
-     */
-    private ObjectId toObjectId(String id) {
-        if (id == null || id.length() != 24) {
-            return null;
-        }
-        try {
-            return new ObjectId(id);
-        } catch (IllegalArgumentException e) {
-            return null;
-        }
     }
 
     private PageResponse<InventoryResponse> buildPageResponse(Page<Inventory> inventoryPage, Pageable pageable) {
