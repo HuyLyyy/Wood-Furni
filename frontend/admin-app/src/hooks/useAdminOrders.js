@@ -10,6 +10,10 @@ import { adminOrdersApi } from '../services/apiAdminOrders.js';
  * Date inputs on the FE are `<input type="date">` (yyyy-MM-dd). We pad
  * `createdTo` to end-of-day so a same-day filter returns the whole day.
  *
+ * IMPORTANT: param keys in the URL MUST match what readFilters() reads and
+ * what the API params are named. All keys use the full `createdFrom` /
+ * `createdTo` naming to match the backend @RequestParam names.
+ *
  * See useAdminProducts.js for the full hardening rationale — short version:
  * we depend on the serialized URL string and a ref guard, never on a freshly
  * computed filters object.
@@ -167,8 +171,8 @@ function readFilters(params, defaultSize) {
         status: get('status'),
         customerId: get('customerId'),
         orderNumber: get('orderNumber'),
-        createdFrom: get('from'),
-        createdTo: get('to'),
+        createdFrom: get('createdFrom'),
+        createdTo: get('createdTo'),
         page: getInt('page', 0),
         size: getInt('size', defaultSize),
     };

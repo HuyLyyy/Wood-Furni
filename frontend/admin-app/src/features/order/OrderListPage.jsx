@@ -124,7 +124,7 @@ export default function OrderListPage() {
                         id="filter-from"
                         type="date"
                         value={filters.createdFrom || ''}
-                        onChange={(e) => setFilters({ from: e.target.value })}
+                        onChange={(e) => setFilters({ createdFrom: e.target.value })}
                     />
                 </FormField>
 
@@ -133,7 +133,7 @@ export default function OrderListPage() {
                         id="filter-to"
                         type="date"
                         value={filters.createdTo || ''}
-                        onChange={(e) => setFilters({ to: e.target.value })}
+                        onChange={(e) => setFilters({ createdTo: e.target.value })}
                     />
                 </FormField>
             </section>
