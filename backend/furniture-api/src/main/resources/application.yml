@@ -128,6 +128,14 @@ mail:
     dev-otp-code: ${DEV_OTP_CODE:}
 
 # =============================================================================
+# Resend Email Configuration (HTTPS API — bypasses Render SMTP restrictions)
+# =============================================================================
+resend:
+  api-key: ${RESEND_API_KEY:}
+  from-email: ${RESEND_FROM_EMAIL:noreply@resend.dev}
+  from-name: ${RESEND_FROM_NAME:WOODFURNI}
+
+# =============================================================================
 # Shipping Configuration
 # =============================================================================
 #

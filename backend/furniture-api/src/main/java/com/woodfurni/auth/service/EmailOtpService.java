@@ -7,17 +7,11 @@ import com.woodfurni.auth.repository.EmailOtpVerifiedTokenRepository;
 import com.woodfurni.auth.repository.UserRepository;
 import com.woodfurni.common.ApiResponse;
 import jakarta.annotation.PostConstruct;
-import jakarta.mail.MessagingException;
-import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-
-import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
@@ -42,9 +36,9 @@ public class EmailOtpService {
     private final EmailOtpVerifiedTokenRepository verifiedTokenRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JavaMailSender mailSender;
+    private final ResendEmailService resendEmailService;
 
-    @Value("${mail.from}")
+    @Value("${mail.from:noreply@resend.dev}")
     private String mailFrom;
 
     @Value("${mail.from-name:WOODFURNI}")
@@ -65,20 +59,12 @@ public class EmailOtpService {
     @Value("${mail.otp.dev-otp-code:}")
     private String devOtpCode;
 
-    @Value("${spring.mail.username:}")
-    private String smtpUsername;
-
-    @Value("${spring.mail.password:}")
-    private String smtpPassword;
-
     @PostConstruct
-    void logSmtpStatus() {
-        boolean hasUser = smtpUsername != null && !smtpUsername.isBlank();
-        boolean hasPass = smtpPassword != null && !smtpPassword.isBlank();
+    void logEmailServiceStatus() {
+        boolean resendConfigured = resendEmailService.isConfigured();
         log.info("=================================================");
-        log.info("SMTP STATUS: username={}, password-set={}, from={}",
-                hasUser ? smtpUsername : "(EMPTY)", hasPass, mailFrom);
-        log.info("SMTP MODE: {}", (hasUser && hasPass) ? "PRODUCTION (will send real email)" : "DEV (returns devOtpCode)");
+        log.info("EMAIL SERVICE: Resend configured={}, from={}", resendConfigured, mailFrom);
+        log.info("EMAIL MODE: {}", resendConfigured ? "PRODUCTION (will send real email)" : "DEV (no RESEND_API_KEY — returns devOtpCode)");
         log.info("=================================================");
     }
 
@@ -131,40 +117,41 @@ public class EmailOtpService {
                 .build();
         emailOtpRepository.save(otp);
 
-        // Decide whether to send via SMTP or fall back to dev mode.
+        // Decide whether to send via Resend API or fall back to dev mode.
         // Dev mode is used when EITHER:
         //   - DEV_OTP_CODE is explicitly set (forces a fixed code), OR
-        //   - SMTP credentials are missing (no MAIL_USERNAME/MAIL_PASSWORD
-        //     configured, e.g. stale Render env) — so the deploy doesn't
+        //   - RESEND_API_KEY is not configured on Render — so the deploy doesn't
         //     completely block registration.
         String configDevCode = (devOtpCode == null || devOtpCode.isBlank()) ? null : devOtpCode;
-        boolean smtpConfigured = smtpUsername != null && !smtpUsername.isBlank()
-                && smtpPassword != null && !smtpPassword.isBlank();
-        boolean forceDev = configDevCode != null || !smtpConfigured;
+        boolean resendConfigured = resendEmailService.isConfigured();
+        boolean forceDev = configDevCode != null || !resendConfigured;
 
         String outboundCode = forceDev ? (configDevCode != null ? configDevCode : code) : null;
         boolean sentViaMail = false;
 
         if (!forceDev) {
-            try {
-                sendOtpEmail(email, code, ttlSeconds);
+            String htmlBody = buildHtmlBody(code, ttlSeconds);
+            boolean sent = resendEmailService.sendHtmlEmail(
+                    email,
+                    "Mã xác nhận đăng ký WOODFURNI",
+                    htmlBody);
+            if (sent) {
                 sentViaMail = true;
-            } catch (Exception ex) {
-                log.error("Failed to send OTP email to {}: {}", email, ex.toString());
-                // Fall back: surface the code in the response so the user can
-                // still register. The OTP remains valid (it's hashed in DB).
+                log.info("OTP email sent to {} via Resend", email);
+            } else {
+                log.error("Resend failed to send OTP email to {}", email);
                 outboundCode = code;
             }
         } else {
-            log.warn("DEV OTP for {} = {} (smtpConfigured={}, devOtpCode set={})",
-                    email, outboundCode, smtpConfigured, configDevCode != null);
+            log.warn("DEV OTP for {} = {} (resendConfigured={}, devOtpCode set={})",
+                    email, outboundCode, resendConfigured, configDevCode != null);
         }
 
         OtpSendResult data = OtpSendResult.success(
                 ttlSeconds,
                 cooldownSeconds,
                 outboundCode,
-                sentViaMail ? null : outboundCode);
+                sentViaMail);
         return ApiResponse.success("Đã gửi mã xác nhận đến email của bạn", data);
     }
 
@@ -278,22 +265,6 @@ public class EmailOtpService {
         return email == null ? "" : email.trim().toLowerCase();
     }
 
-    private void sendOtpEmail(String to, String code, long ttl) throws MessagingException {
-        MimeMessage message = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(
-                message, true, StandardCharsets.UTF_8.name());
-        try {
-            helper.setFrom(mailFrom, mailFromName);
-        } catch (java.io.UnsupportedEncodingException ex) {
-            // UTF-8 is guaranteed by the JVM; this should never happen.
-            throw new IllegalStateException("UTF-8 charset unavailable", ex);
-        }
-        helper.setTo(to);
-        helper.setSubject("Mã xác nhận đăng ký WOODFURNI");
-        helper.setText(buildHtmlBody(code, ttl), true);
-        mailSender.send(message);
-    }
-
     private String buildHtmlBody(String code, long ttl) {
         long minutes = ttl / 60;
         return """
@@ -352,12 +323,12 @@ public class EmailOtpService {
     // package; controllers adapt them into OtpSendResponse / OtpVerifyResponse).
     // ------------------------------------------------------------------------
 
-    public record OtpSendResult(long ttlSeconds, long cooldownSeconds, String devOtpCode) {
-        public static OtpSendResult success(long ttl, long cooldown, String dev, String ignored) {
-            return new OtpSendResult(ttl, cooldown, dev);
+    public record OtpSendResult(long ttlSeconds, long cooldownSeconds, String devOtpCode, boolean emailSent) {
+        public static OtpSendResult success(long ttl, long cooldown, String devCode, boolean sentViaMail) {
+            return new OtpSendResult(ttl, cooldown, devCode, sentViaMail);
         }
         public static OtpSendResult cooldown(long waitSeconds) {
-            return new OtpSendResult(0, waitSeconds, null);
+            return new OtpSendResult(0, waitSeconds, null, false);
         }
     }
 
