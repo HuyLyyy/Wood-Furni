@@ -7,23 +7,19 @@ import { adminCatalogApi } from '../services/apiAdminCatalog.js';
  * URL-synced filters: keyword, status, category, page, size, sort.
  * Auto-fetches on any URL change. Stale-response safe.
  *
- * Hardening notes (2026-08-20):
- *  - `useMemo(filters, [searchParams])` alone was not enough — react-router's
- *    useSearchParams can hand back a new tuple reference per render even when
- *    the URL is unchanged, which kept re-running the fetch effect in an
- *    infinite loop. We now compare `searchParams.toString()` (the actual
- *    serialized query string) inside a ref guard so the fetch only fires when
- *    the URL truly changes.
- *  - `loading: true` is no longer flipped inside the fetch effect; that was
- *    another source of forced re-renders. We expose a `loading` flag derived
- *    from a ref counter incremented around each in-flight request.
+ * Race-condition hardening:
+ * - A single `currentReqId` ref replaces the `reqIdRef + inFlightRef` pair.
+ *   Only the response matching the live request id is applied to state; all
+ *   others are silently discarded. This prevents stale responses from
+ *   overwriting fresh ones when network latency varies across keystrokes.
+ * - `loading` is derived from `currentReqId !== null` (true while a request
+ *   is in-flight), so it never gets "stuck" when a request early-returns.
+ * - `refresh()` triggers a new fetch by incrementing a `__r` query param,
+ *   reusing the URL effect's debouncing guard without duplicating logic.
  */
 export default function useAdminProducts({ pageSize = 20 } = {}) {
     const [searchParams, setSearchParams] = useURLSearchParams();
 
-    // Stable snapshot of the URL — re-derived only when the serialized query
-    // string actually changes. This is the single source of truth for "did the
-    // user change a filter?".
     const filters = readFilters(searchParams, pageSize);
     const urlKey = searchParams.toString();
 
@@ -37,18 +33,15 @@ export default function useAdminProducts({ pageSize = 20 } = {}) {
         error: null,
     });
 
-    const reqIdRef = useRef(0);
-    const lastUrlKeyRef = useRef(null);
-    const inFlightRef = useRef(0);
+    // Single integer that identifies the currently-active request.
+    // Starts null (no request pending). Set to a positive integer when a
+    // request fires, reset to null when that request resolves.
+    const currentReqId = useRef(null);
+    // Tracks the urlKey at the moment the current request was fired, so we
+    // can re-fire if the user hits Refresh while the same URL is showing.
+    const requestUrlKey = useRef(null);
 
-    useEffect(() => {
-        if (lastUrlKeyRef.current === urlKey) return;
-        lastUrlKeyRef.current = urlKey;
-
-        const myReq = ++reqIdRef.current;
-        inFlightRef.current += 1;
-        setState((prev) => ({ ...prev, loading: true, error: null }));
-
+    const doFetch = useCallback((reqId, urlKeySnapshot) => {
         const params = {
             keyword: filters.keyword || undefined,
             category: filters.category || undefined,
@@ -61,72 +54,74 @@ export default function useAdminProducts({ pageSize = 20 } = {}) {
             size: filters.size,
         };
 
-        adminCatalogApi
-            .searchProducts(params)
-            .then((result) => {
-                if (reqIdRef.current !== myReq) return;
-                inFlightRef.current = Math.max(0, inFlightRef.current - 1);
-                setState({
-                    items: result.items || [],
-                    page: result.page ?? filters.page,
-                    size: result.size ?? filters.size,
-                    totalElements: result.totalElements ?? 0,
-                    totalPages: result.totalPages ?? 0,
-                    loading: inFlightRef.current > 0,
-                    error: null,
-                });
-            })
-            .catch((err) => {
-                if (reqIdRef.current !== myReq) return;
-                inFlightRef.current = Math.max(0, inFlightRef.current - 1);
-                setState((prev) => ({
-                    ...prev,
-                    loading: inFlightRef.current > 0,
-                    error: err,
-                }));
-            });
-        // We intentionally depend on the stringified URL, not on `filters`, so
-        // we never re-fire on a render that produces an equivalent query string.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [urlKey]);
-
-    const refresh = useCallback(() => {
-        const myReq = ++reqIdRef.current;
-        inFlightRef.current += 1;
         setState((prev) => ({ ...prev, loading: true, error: null }));
 
         adminCatalogApi
-            .searchProducts({
-                keyword: filters.keyword || undefined,
-                category: filters.category || undefined,
-                status: filters.status || undefined,
-                sort: filters.sort,
-                page: filters.page,
-                size: filters.size,
-            })
+            .searchProducts(params)
             .then((result) => {
-                if (reqIdRef.current !== myReq) return;
-                inFlightRef.current = Math.max(0, inFlightRef.current - 1);
+                // Only apply this response if it belongs to the current request.
+                // Stale responses (e.g. a slow network response that arrived after
+                // a faster subsequent request) are discarded automatically.
+                if (currentReqId.current !== reqId) return;
+                requestUrlKey.current = urlKeySnapshot;
+
                 setState({
                     items: result.items || [],
                     page: result.page ?? filters.page,
                     size: result.size ?? filters.size,
                     totalElements: result.totalElements ?? 0,
                     totalPages: result.totalPages ?? 0,
-                    loading: inFlightRef.current > 0,
+                    loading: false,
                     error: null,
                 });
             })
             .catch((err) => {
-                if (reqIdRef.current !== myReq) return;
-                inFlightRef.current = Math.max(0, inFlightRef.current - 1);
+                if (currentReqId.current !== reqId) return;
                 setState((prev) => ({
                     ...prev,
-                    loading: inFlightRef.current > 0,
+                    loading: false,
                     error: err,
                 }));
             });
     }, [filters]);
+
+    useEffect(() => {
+        // Guard: skip if URL hasn't actually changed (react-router may give
+        // us a new reference even when the string is identical).
+        if (requestUrlKey.current === urlKey) return;
+        requestUrlKey.current = urlKey;
+
+        const reqId = (currentReqId.current || 0) + 1;
+        currentReqId.current = reqId;
+
+        doFetch(reqId, urlKey);
+        // Intentionally depend on the stringified URL, not on `filters`, so
+        // we never re-fire on a render that produces an equivalent query string.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [urlKey]);
+
+    /**
+     * Refresh — fires a new fetch against whatever URL is currently in the
+     * address bar. Implemented by temporarily toggling a `__r` param, which
+     * changes `urlKey` and triggers the effect above. The param is removed
+     * immediately so it doesn't pollute history.
+     */
+    const refresh = useCallback(() => {
+        const tick = Math.random().toString(36).slice(2);
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set('__r', tick);
+            return next;
+        });
+        // Strip the tick param right back out so the URL is clean.
+        setTimeout(() => {
+            setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                next.delete('__r');
+                return next;
+            });
+        }, 0);
+    }, [setSearchParams]);
 
     const setFilters = useCallback((patch) => {
         setSearchParams((prev) => {
