@@ -875,6 +875,11 @@ public class OrderService {
         releaseInventoryForOrder(order);
         order.setPaymentStatus(PaymentStatus.REFUNDED);
 
+        // Restore promotion usage count if order had a promotion code
+        if (order.getPromotionCode() != null && !order.getPromotionCode().isBlank()) {
+            promotionService.decrementUsage(order.getPromotionCode());
+        }
+
         Order saved = orderRepository.save(order);
 
         try {
@@ -944,6 +949,11 @@ public class OrderService {
             order.addStatusHistory(
                     target.name() + " — Lý do: " + reason,
                     actorUserId);
+        }
+
+        // Restore promotion usage count
+        if (order.getPromotionCode() != null && !order.getPromotionCode().isBlank()) {
+            promotionService.decrementUsage(order.getPromotionCode());
         }
 
         Order saved = orderRepository.save(order);
@@ -1202,9 +1212,14 @@ public class OrderService {
             finalStatus = OrderStatus.CANCELLED;
             order.setPaymentStatus(PaymentStatus.REFUNDED);
             releaseInventoryForOrder(order);
+            // Restore promotion usage count when full rejection
+            if (hasPromotion) {
+                promotionService.decrementUsage(order.getPromotionCode());
+            }
             log.info("[receiveReturn] Order {} fully rejected → CANCELLED", order.getOrderNumber());
         } else {
             // Customer accepted some items → DELIVERED
+            // Promotion usage is NOT restored (it was successfully used)
             finalStatus = OrderStatus.DELIVERED;
             commitReceivedInventory(order);
             log.info("[receiveReturn] Order {} partially/full accepted → DELIVERED", order.getOrderNumber());

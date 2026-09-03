@@ -258,7 +258,7 @@ export default function ReceiveReturnModal({ order, onClose, onConfirm }) {
                             Trạng thái hiện tại:{' '}
                             <strong>
                                 {allZero
-                                    ? 'Đã trả hết — sẽ HỦY đơn & hoàn tiền'
+                                    ? 'Đã trả hết — sẽ HỦY đơn, hoàn tiền & khôi phục mã KM'
                                     : allFull
                                         ? 'Đã giao đủ tất cả'
                                         : 'Hỗn hợp (không hợp lệ cho đơn có KM)'}

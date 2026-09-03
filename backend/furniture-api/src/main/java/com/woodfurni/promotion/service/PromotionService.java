@@ -146,6 +146,36 @@ public class PromotionService {
         }
     }
 
+    /**
+     * Decrement usage count for a promotion.
+     * Called by OrderService when an order is cancelled (any reason).
+     * Uses atomic findAndModify to prevent race conditions.
+     * Only decrements if usedCount > 0 to prevent negative values.
+     */
+    public void decrementUsage(String code) {
+        if (code == null || code.trim().isEmpty()) {
+            return;
+        }
+
+        String normalizedCode = code.trim().toUpperCase();
+
+        // First check if promotion exists and has usedCount > 0
+        Promotion existing = promotionRepository.findByCodeIgnoreCase(normalizedCode).orElse(null);
+        if (existing == null) {
+            // Promotion doesn't exist, nothing to decrement
+            return;
+        }
+        if (existing.getUsedCount() == null || existing.getUsedCount() <= 0) {
+            // Already at 0, nothing to decrement
+            return;
+        }
+
+        // Atomically decrement
+        Query query = new Query(Criteria.where("code").is(normalizedCode));
+        Update update = new Update().inc("usedCount", -1);
+        mongoTemplate.findAndModify(query, update, Promotion.class);
+    }
+
     public PromotionResponse create(PromotionRequest request) {
         String code = request.getCode().trim().toUpperCase();
 

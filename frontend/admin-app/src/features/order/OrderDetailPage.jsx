@@ -60,7 +60,6 @@ export default function OrderDetailPage() {
     const canMarkPrepared = can(role, 'orders:markPrepared');
     const canCancel = can(role, 'orders:cancel');
     const canReceiveReturn = can(role, 'orders:receiveReturn');
-    const canForceCancelPromo = can(role, 'orders:forceCancelPromo');
 
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -151,27 +150,6 @@ export default function OrderDetailPage() {
             const next = await adminOrdersApi.receiveReturn(order.id, items, note);
             setOrder(next);
             toast.success('Đã xác nhận nhận lại hàng.');
-        } catch (err) {
-            void err;
-        } finally {
-            setActing(false);
-        }
-    };
-
-    const handleForceCancelPromo = async () => {
-        const ok = await confirm({
-            title: 'Hủy đơn hàng có khuyến mãi?',
-            message: 'Đơn hàng có mã khuyến mãi sẽ được hủy và hoàn tiền. Hành động này không thể hoàn tác.',
-            confirmText: 'Hủy đơn & hoàn tiền',
-            variant: 'danger',
-        });
-        if (!ok) return;
-        const reason = window.prompt('Lý do hủy (tùy chọn):', '') || null;
-        setActing(true);
-        try {
-            const next = await adminOrdersApi.forceCancelPromo(order.id, reason);
-            setOrder(next);
-            toast.success('Đã hủy đơn hàng có khuyến mãi và hoàn tiền.');
         } catch (err) {
             void err;
         } finally {
@@ -304,41 +282,6 @@ export default function OrderDetailPage() {
                                 onClick={handleReceiveReturn}
                             >
                                 📥 Nhận lại hàng từ NVGH
-                            </Button>
-                            {canForceCancelPromo && order.promotionCode && (
-                                <Button
-                                    variant="danger"
-                                    disabled={acting}
-                                    onClick={handleForceCancelPromo}
-                                >
-                                    🛑 Hủy đơn & hoàn tiền (KM)
-                                </Button>
-                            )}
-                        </div>
-                    </section>
-                )}
-
-                {/* ADMIN + SHIPPING + has promotion → same force-cancel button,
-                    but rendered outside the ReceiveReturnModal block so it
-                    also shows when canReceiveReturn is false (e.g. WAREHOUSE-only
-                    account, or when status is DELIVERED). */}
-                {canForceCancelPromo && order.promotionCode
-                    && (order.status === 'SHIPPING' || order.status === 'DELIVERED')
-                    && !(canReceiveReturn && order.status === 'SHIPPING') && (
-                    <section className="order-detail-page__section">
-                        <h3>Hủy đơn có khuyến mãi</h3>
-                        <p style={{ color: '#64748b', fontSize: 14, margin: '0 0 12px' }}>
-                            Đơn hàng đang ở trạng thái <strong>{statusLabel(order.status)}</strong>{' '}
-                            và đang áp dụng mã khuyến mãi <strong>{order.promotionCode}</strong>.
-                            Vì chính sách khuyến mãi không cho phép nhận một phần, bạn có thể hủy đơn và hoàn tiền cho khách.
-                        </p>
-                        <div className="action-row">
-                            <Button
-                                variant="danger"
-                                disabled={acting}
-                                onClick={handleForceCancelPromo}
-                            >
-                                🛑 Hủy đơn & hoàn tiền (KM)
                             </Button>
                         </div>
                     </section>
