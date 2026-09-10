@@ -397,6 +397,35 @@ public class OrderService {
 
         if (!isStaff) {
             log.info("User is not staff, returning only their own orders");
+
+            // Build a status filter the same way we do for staff so a customer
+            // asking for ?status=DELIVERED actually gets only DELIVERED orders.
+            // The previous implementation skipped this branch entirely when the
+            // caller was a customer, so the storefront filter buttons all
+            // collapsed back to "Tất cả".
+            OrderStatus orderStatus = null;
+            if (status != null && !status.isBlank()) {
+                try {
+                    orderStatus = OrderStatus.valueOf(status.toUpperCase());
+                } catch (IllegalArgumentException ex) {
+                    log.warn("Invalid status value from customer: {}", status);
+                    return new PageImpl<>(Collections.emptyList(), pageable, 0);
+                }
+            }
+
+            if (orderStatus != null) {
+                Page<Order> pageResult = orderRepository
+                        .findByCustomerIdAndStatus(userId, orderStatus, pageable);
+                if (createdFrom == null && createdTo == null) {
+                    return pageResult.map(order -> toResponse(order, null, null));
+                }
+                List<OrderResponse> filtered = pageResult.getContent().stream()
+                        .filter(o -> isInDateRange(o.getCreatedAt(), createdFrom, createdTo))
+                        .map(order -> toResponse(order, null, null))
+                        .collect(Collectors.toList());
+                return new PageImpl<>(filtered, pageable, filtered.size());
+            }
+
             if (createdFrom != null || createdTo != null) {
                 return findByCustomerIdWithDate(userId, createdFrom, createdTo, pageable);
             }
