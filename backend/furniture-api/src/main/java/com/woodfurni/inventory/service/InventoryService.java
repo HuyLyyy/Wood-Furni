@@ -142,6 +142,18 @@ public class InventoryService {
     }
 
     /**
+     * Get raw quantityOnHand for a product (regardless of reservations).
+     * Returns 0 when the product has no inventory record yet — this is the
+     * value that drives the customer-app "Còn hàng / Hết hàng" badge, so
+     * callers must treat 0 as "out of stock".
+     */
+    public int getQuantityOnHand(String productId) {
+        return inventoryRepository.findByProductId(productId)
+                .map(Inventory::getQuantityOnHand)
+                .orElse(0);
+    }
+
+    /**
      * Get full inventory record by product ID.
      */
     public InventoryResponse getByProductId(String productId) {

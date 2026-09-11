@@ -12,6 +12,7 @@ import com.woodfurni.common.EntityNotFoundException;
 import com.woodfurni.common.PageResponse;
 import com.woodfurni.inventory.service.InventoryService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +28,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ProductService {
 
@@ -259,8 +261,28 @@ public class ProductService {
                 : materialRepository.findAllById(allMaterialIds).stream()
                     .collect(Collectors.toMap(Material::getId, m -> m));
 
+        // Batch-load inventory for this page to avoid N+1 queries when
+        // applying the stock-driven status override in toResponse().
+        List<String> productIds = products.stream()
+                .map(Product::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        Map<String, Integer> stockMap = productIds.isEmpty()
+                ? java.util.Collections.emptyMap()
+                : new java.util.HashMap<>();
+        if (!productIds.isEmpty()) {
+            Query invQuery = new Query(Criteria.where("productId").in(productIds));
+            for (var inv : mongoTemplate.find(invQuery, com.woodfurni.inventory.model.Inventory.class)) {
+                stockMap.put(inv.getProductId(), inv.getQuantityOnHand());
+            }
+        }
+
         List<ProductResponse> responses = products.stream()
-                .map(p -> toResponse(p, categoryMap, materialMap))
+                .map(p -> {
+                    Integer onHand = stockMap.get(p.getId());
+                    return toResponseWithStock(p, categoryMap, materialMap,
+                            onHand == null ? 0 : onHand);
+                })
                 .collect(Collectors.toList());
 
         return PageResponse.<ProductResponse>builder()
@@ -464,6 +486,18 @@ public class ProductService {
             if (product.getImages() == null || product.getImages().isEmpty()) {
                 throw new IllegalArgumentException("Cannot publish product without at least one image");
             }
+            // Self-healing guard: never expose an ACTIVE product that has
+            // zero stock — auto-correct to OUT_OF_STOCK so the customer-app
+            // badge always reflects reality, even if status drifted (manual
+            // DB edit, race, seed data, etc.).
+            int onHand = inventoryService.getQuantityOnHand(product.getId());
+            if (onHand <= 0) {
+                log.info("[ProductService] Refusing ACTIVE for productId={} — quantityOnHand={}. Forcing OUT_OF_STOCK.",
+                        product.getId(), onHand);
+                product.setStatus(ProductStatus.OUT_OF_STOCK);
+                Product saved = productRepository.save(product);
+                return toResponse(saved, null, null);
+            }
         }
 
         product.setStatus(newStatus);
@@ -487,6 +521,16 @@ public class ProductService {
     }
 
     private ProductResponse toResponse(Product product, Map<String, Category> categoryMap, Map<String, Material> materialMap) {
+        // Single-product path: one inventory lookup is fine (used for
+        // getById, getBySlug, create, update, changeStatus).
+        int onHand = inventoryService.getQuantityOnHand(product.getId());
+        return toResponseWithStock(product, categoryMap, materialMap, onHand);
+    }
+
+    private ProductResponse toResponseWithStock(Product product,
+                                                Map<String, Category> categoryMap,
+                                                Map<String, Material> materialMap,
+                                                int onHand) {
         String categoryName = null;
         if (categoryMap != null && product.getCategoryId() != null) {
             Category cat = categoryMap.get(product.getCategoryId());
@@ -502,6 +546,27 @@ public class ProductService {
                     .filter(m -> m != null)
                     .map(Material::getName)
                     .collect(Collectors.toList());
+        }
+
+        // Defense-in-depth: derive the on-the-wire status from real stock.
+        // The stored Product.status is a manual admin intent (ACTIVE / DRAFT /
+        // DISCONTINUED / OUT_OF_STOCK) and can drift from inventory when:
+        //   - admin set ACTIVE but product was already out of stock,
+        //   - DB was edited directly (seed data, migration, manual fix),
+        //   - sync race between concurrent adjust() calls.
+        // The customer-app badge ("Còn hàng / Hết hàng") is driven by this
+        // status field, so the value we ship MUST equal the real stock state.
+        ProductStatus effectiveStatus = product.getStatus();
+        if (product.getStatus() == ProductStatus.OUT_OF_STOCK
+                || product.getStatus() == ProductStatus.ACTIVE
+                || product.getStatus() == ProductStatus.DRAFT) {
+            if (onHand <= 0) {
+                effectiveStatus = ProductStatus.OUT_OF_STOCK;
+            } else if (product.getStatus() == ProductStatus.OUT_OF_STOCK) {
+                // Stock has been restocked — surface as ACTIVE so the badge
+                // flips back to "Còn hàng" immediately on the next read.
+                effectiveStatus = ProductStatus.ACTIVE;
+            }
         }
 
         return ProductResponse.builder()
@@ -524,7 +589,7 @@ public class ProductService {
                 .images(product.getImages())
                 .description(product.getDescription())
                 .warranty(product.getWarranty())
-                .status(product.getStatus())
+                .status(effectiveStatus)
                 .ratingAverage(product.getRatingAverage())
                 .ratingCount(product.getRatingCount())
                 .createdAt(product.getCreatedAt())
