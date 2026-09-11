@@ -112,20 +112,21 @@ public class InventoryService {
     /**
      * Initialize inventory record for a newly created product.
      * Called from ProductService.create() to ensure every product has stock tracking.
+     *
+     * Race-safe: uses MongoDB atomic upsert with $setOnInsert so two concurrent
+     * calls cannot create duplicate documents. Combined with the unique index
+     * on {@code productId} declared on {@link Inventory}, this guarantees one
+     * inventory record per product at the database level.
      */
     public Inventory initForProduct(String productId) {
-        if (inventoryRepository.existsByProductId(productId)) {
-            return inventoryRepository.findByProductId(productId).orElse(null);
-        }
-
-        Inventory inventory = Inventory.builder()
-                .productId(productId)
-                .quantityOnHand(0)
-                .quantityReserved(0)
-                .lowStockThreshold(5)
-                .build();
-
-        return inventoryRepository.save(inventory);
+        Query q = new Query(Criteria.where("productId").is(productId));
+        Update u = new Update()
+                .setOnInsert("productId", productId)
+                .setOnInsert("quantityOnHand", 0)
+                .setOnInsert("quantityReserved", 0)
+                .setOnInsert("lowStockThreshold", 5);
+        mongoTemplate.upsert(q, u, Inventory.class);
+        return inventoryRepository.findByProductId(productId).orElse(null);
     }
 
     /**
@@ -152,11 +153,47 @@ public class InventoryService {
     /**
      * List all inventory records with pagination.
      * Includes product name and SKU from join.
+     *
+     * Self-heals duplicates on every call so admin pages always see a clean
+     * list even if the app has not been restarted recently.
      */
     public PageResponse<InventoryResponse> getAll(int page, int size) {
+        healDuplicates();
         Pageable pageable = PageRequest.of(page, size);
         Page<Inventory> inventoryPage = inventoryRepository.findAll(pageable);
         return buildPageResponse(inventoryPage, pageable);
+    }
+
+    /**
+     * Remove duplicate inventory documents for the same productId.
+     * Keeps the doc with the latest {@code updatedAt} timestamp and deletes the rest.
+     *
+     * Safe to call on every list — no-op when the collection is already clean.
+     */
+    private void healDuplicates() {
+        Map<String, List<Inventory>> grouped = inventoryRepository.findAll().stream()
+                .collect(Collectors.groupingBy(Inventory::getProductId));
+        int removed = 0;
+        for (Map.Entry<String, List<Inventory>> entry : grouped.entrySet()) {
+            List<Inventory> copies = entry.getValue();
+            if (copies.size() <= 1) continue;
+
+            copies.sort((a, b) -> {
+                Instant ta = a.getUpdatedAt() != null ? a.getUpdatedAt() : Instant.MIN;
+                Instant tb = b.getUpdatedAt() != null ? b.getUpdatedAt() : Instant.MIN;
+                return tb.compareTo(ta); // newest first
+            });
+            Inventory keeper = copies.get(0);
+            for (int i = 1; i < copies.size(); i++) {
+                inventoryRepository.deleteById(copies.get(i).getId());
+                removed++;
+                log.warn("[InventoryService] Removed duplicate inventory doc id={} for productId={} (keeper id={})",
+                        copies.get(i).getId(), entry.getKey(), keeper.getId());
+            }
+        }
+        if (removed > 0) {
+            log.info("[InventoryService] healDuplicates removed {} duplicate inventory document(s)", removed);
+        }
     }
 
     /**
@@ -209,20 +246,15 @@ public class InventoryService {
      */
     public void initStockIfAbsent(String productId) {
         log.info("[InventoryService] initStockIfAbsent called for productId={}", productId);
+        // Race-safe: atomic upsert. Two concurrent calls cannot create duplicates.
         Query query = new Query(Criteria.where("productId").is(productId));
-        Inventory existing = mongoTemplate.findOne(query, Inventory.class);
-        if (existing == null) {
-            Inventory inv = Inventory.builder()
-                    .productId(productId)
-                    .quantityOnHand(0)
-                    .quantityReserved(0)
-                    .lowStockThreshold(DEFAULT_LOW_STOCK_THRESHOLD)
-                    .build();
-            mongoTemplate.save(inv);
-            log.info("[InventoryService] Created new inventory record for productId={}", productId);
-        } else {
-            log.info("[InventoryService] Inventory already exists for productId={}, qtyOnHand={}", productId, existing.getQuantityOnHand());
-        }
+        Update update = new Update()
+                .setOnInsert("productId", productId)
+                .setOnInsert("quantityOnHand", 0)
+                .setOnInsert("quantityReserved", 0)
+                .setOnInsert("lowStockThreshold", DEFAULT_LOW_STOCK_THRESHOLD);
+        mongoTemplate.upsert(query, update, Inventory.class);
+        log.info("[InventoryService] initStockIfAbsent upserted (or kept) inventory for productId={}", productId);
     }
 
     /**
