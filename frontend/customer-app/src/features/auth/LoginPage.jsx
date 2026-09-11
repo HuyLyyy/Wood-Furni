@@ -90,21 +90,27 @@ export default function LoginPage() {
                         autoComplete="current-password"
                     />
 
-                    <Button
-                        type="submit"
-                        variant="primary"
-                        size="lg"
-                        fullWidth
-                        loading={submitting}
-                    >
-                        {submitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
-                    </Button>
-                </form>
+                <div className="auth-forgot-row">
+                    <Link to="/forgot-password" className="auth-forgot-link">
+                        Quên mật khẩu?
+                    </Link>
+                </div>
 
-                <p className="auth-footer">
-                    Chưa có tài khoản? <Link to="/register">Đăng ký ngay</Link>
-                </p>
-            </div>
+                <Button
+                    type="submit"
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                    loading={submitting}
+                >
+                    {submitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
+                </Button>
+            </form>
+
+            <p className="auth-footer">
+                Chưa có tài khoản? <Link to="/register">Đăng ký ngay</Link>
+            </p>
         </div>
-    );
+    </div>
+);
 }

@@ -43,6 +43,23 @@
     font-weight: 600;
 }
 
+.auth-forgot-row {
+    display: flex;
+    justify-content: flex-end;
+    margin: -4px 0 16px;
+}
+
+.auth-forgot-link {
+    color: var(--color-primary);
+    font-weight: 500;
+    font-size: 13px;
+    text-decoration: none;
+}
+
+.auth-forgot-link:hover {
+    text-decoration: underline;
+}
+
 /* ===== OTP verification step ===== */
 
 .otp-card {

@@ -12,8 +12,22 @@ const CODE_LENGTH = 6;
  * The user manually copies it into the inputs. Auto-submit fires once
  * all 6 digits are entered.
  * Resend button is disabled while cooldown > 0.
+ *
+ * <p>To reuse this component for the forgot-password flow, callers pass
+ * the {@code sendOtp} and {@code verifyOtp} functions explicitly.  When
+ * omitted, the component falls back to the registration endpoints to keep
+ * the existing call site working.
  */
-export default function OtpVerificationStep({ email, onVerified, onBack, onResend }) {
+export default function OtpVerificationStep({
+    email,
+    onVerified,
+    onBack,
+    onResend,
+    sendOtp,
+    verifyOtp,
+}) {
+    const sendFn = sendOtp || ((addr) => authApi.sendRegistrationOtp(addr));
+    const verifyFn = verifyOtp || ((addr, code) => authApi.verifyRegistrationOtp(addr, code));
     const [digits, setDigits] = useState(() => Array(CODE_LENGTH).fill(''));
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState('');
@@ -115,7 +129,7 @@ export default function OtpVerificationStep({ email, onVerified, onBack, onResen
         setInfo('');
         setSubmitting(true);
         try {
-            const data = await authApi.verifyRegistrationOtp(email, codeToVerify);
+            const data = await verifyFn(email, codeToVerify);
             if (!data?.otpToken) {
                 setError('Mã xác nhận không hợp lệ, vui lòng thử lại');
                 return;
@@ -136,7 +150,7 @@ export default function OtpVerificationStep({ email, onVerified, onBack, onResen
         setError('');
         setInfo('');
         try {
-            await authApi.sendRegistrationOtp(email);
+            await sendFn(email);
             const wait = 60;
             setCooldown(wait);
             setInfo('Đã gửi lại mã xác nhận. Vui lòng kiểm tra email.');

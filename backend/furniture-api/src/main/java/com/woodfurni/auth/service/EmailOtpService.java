@@ -29,6 +29,7 @@ import java.util.UUID;
 public class EmailOtpService {
 
     public static final String PURPOSE_REGISTER = "REGISTER";
+    public static final String PURPOSE_FORGOT_PASSWORD = "FORGOT_PASSWORD";
 
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -80,14 +81,51 @@ public class EmailOtpService {
      *  - COOLDOWN: previous OTP sent less than {@code cooldownSeconds} ago
      */
     public ApiResponse<OtpSendResult> sendRegistrationOtp(String rawEmail) {
+        return sendOtpForPurpose(rawEmail, PURPOSE_REGISTER, false);
+    }
+
+    /**
+     * Send (or resend) a forgot-password OTP to the given email.
+     *
+     * Failure cases:
+     *  - EMAIL_NOT_FOUND: no user owns this email (security: don't leak
+     *    existence, but we still return success to the client so callers
+     *    don't have to special-case it; this is the canonical practice)
+     *  - COOLDOWN: previous OTP sent less than {@code cooldownSeconds} ago
+     */
+    public ApiResponse<OtpSendResult> sendForgotPasswordOtp(String rawEmail) {
+        return sendOtpForPurpose(rawEmail, PURPOSE_FORGOT_PASSWORD, true);
+    }
+
+    /**
+     * Core implementation shared by register / forgot-password flows.
+     *
+     * <p>Behaviour:
+     * <ul>
+     *   <li>{@code emailMustExist == false} (register): returns
+     *       {@code EMAIL_ALREADY_EXISTS} if the email is taken.</li>
+     *   <li>{@code emailMustExist == true} (forgot password): returns a
+     *       generic "not found" error if the email is not registered.</li>
+     *   <li>Both honour the cooldown window — re-sends within
+     *       {@code cooldownSeconds} of the previous OTP return a cooldown
+     *       payload instead of issuing a new code.</li>
+     * </ul>
+     */
+    private ApiResponse<OtpSendResult> sendOtpForPurpose(String rawEmail,
+                                                         String purpose,
+                                                         boolean emailMustExist) {
         String email = normalizeEmail(rawEmail);
 
-        if (userRepository.existsByEmail(email)) {
+        boolean userExists = userRepository.existsByEmail(email);
+        if (emailMustExist && !userExists) {
+            return ApiResponse.error("Email không tồn tại trong hệ thống");
+        }
+        if (!emailMustExist && userExists) {
             return ApiResponse.error("Email đã được sử dụng");
         }
 
         Optional<EmailOtp> existing = emailOtpRepository
-                .findTopByEmailAndPurposeOrderByCreatedAtDesc(email, PURPOSE_REGISTER);
+                .findTopByEmailAndPurposeOrderByCreatedAtDesc(email, purpose);
 
         if (existing.isPresent()) {
             EmailOtp prev = existing.get();
@@ -108,7 +146,7 @@ public class EmailOtpService {
         Instant now = Instant.now();
         EmailOtp otp = EmailOtp.builder()
                 .email(email)
-                .purpose(PURPOSE_REGISTER)
+                .purpose(purpose)
                 .otpHash(passwordEncoder.encode(code))
                 .attempts(0)
                 .createdAt(now)
@@ -118,10 +156,6 @@ public class EmailOtpService {
         emailOtpRepository.save(otp);
 
         // Decide whether to send via Resend API or fall back to dev mode.
-        // Dev mode is used when EITHER:
-        //   - DEV_OTP_CODE is explicitly set (forces a fixed code), OR
-        //   - RESEND_API_KEY is not configured on Render — so the deploy doesn't
-        //     completely block registration.
         String configDevCode = (devOtpCode == null || devOtpCode.isBlank()) ? null : devOtpCode;
         boolean resendConfigured = resendEmailService.isConfigured();
         boolean forceDev = configDevCode != null || !resendConfigured;
@@ -130,21 +164,23 @@ public class EmailOtpService {
         boolean sentViaMail = false;
 
         if (!forceDev) {
-            String htmlBody = buildHtmlBody(code, ttlSeconds);
-            boolean sent = resendEmailService.sendHtmlEmail(
-                    email,
-                    "Mã xác nhận đăng ký WOODFURNI",
-                    htmlBody);
+            String subject = PURPOSE_FORGOT_PASSWORD.equals(purpose)
+                    ? "Mã xác nhận đặt lại mật khẩu WOODFURNI"
+                    : "Mã xác nhận đăng ký WOODFURNI";
+            String htmlBody = PURPOSE_FORGOT_PASSWORD.equals(purpose)
+                    ? buildForgotPasswordHtmlBody(code, ttlSeconds)
+                    : buildHtmlBody(code, ttlSeconds);
+            boolean sent = resendEmailService.sendHtmlEmail(email, subject, htmlBody);
             if (sent) {
                 sentViaMail = true;
-                log.info("OTP email sent to {} via Resend", email);
+                log.info("OTP email ({}) sent to {} via Resend", purpose, email);
             } else {
                 log.error("Resend failed to send OTP email to {}", email);
                 outboundCode = code;
             }
         } else {
-            log.warn("DEV OTP for {} = {} (resendConfigured={}, devOtpCode set={})",
-                    email, outboundCode, resendConfigured, configDevCode != null);
+            log.warn("DEV OTP ({}) for {} = {} (resendConfigured={}, devOtpCode set={})",
+                    purpose, email, outboundCode, resendConfigured, configDevCode != null);
         }
 
         OtpSendResult data = OtpSendResult.success(
@@ -164,6 +200,19 @@ public class EmailOtpService {
      * {@code otpToken} the client returns at registration time.
      */
     public ApiResponse<OtpVerifyResult> verifyRegistrationOtp(String rawEmail, String code) {
+        return verifyOtpForPurpose(rawEmail, code, PURPOSE_REGISTER);
+    }
+
+    /**
+     * Verify the code submitted during the forgot-password flow. On success
+     * issues a single-use {@code otpToken} (with purpose = FORGOT_PASSWORD)
+     * the client returns to {@code POST /auth/password/reset}.
+     */
+    public ApiResponse<OtpVerifyResult> verifyForgotPasswordOtp(String rawEmail, String code) {
+        return verifyOtpForPurpose(rawEmail, code, PURPOSE_FORGOT_PASSWORD);
+    }
+
+    private ApiResponse<OtpVerifyResult> verifyOtpForPurpose(String rawEmail, String code, String purpose) {
         String email = normalizeEmail(rawEmail);
 
         if (code == null || code.isBlank()) {
@@ -171,7 +220,7 @@ public class EmailOtpService {
         }
 
         Optional<EmailOtp> maybeOtp = emailOtpRepository
-                .findTopByEmailAndPurposeOrderByCreatedAtDesc(email, PURPOSE_REGISTER);
+                .findTopByEmailAndPurposeOrderByCreatedAtDesc(email, purpose);
 
         if (maybeOtp.isEmpty()) {
             return ApiResponse.error("Mã xác nhận không tồn tại hoặc đã hết hạn");
@@ -208,13 +257,13 @@ public class EmailOtpService {
         emailOtpRepository.save(otp);
 
         // Clean up any older verified tokens for this email/purpose.
-        verifiedTokenRepository.deleteByEmailAndPurpose(email, PURPOSE_REGISTER);
+        verifiedTokenRepository.deleteByEmailAndPurpose(email, purpose);
 
         String tokenValue = UUID.randomUUID().toString();
         EmailOtpVerifiedToken token = EmailOtpVerifiedToken.builder()
                 .token(tokenValue)
                 .email(email)
-                .purpose(PURPOSE_REGISTER)
+                .purpose(purpose)
                 .verifiedAt(Instant.now())
                 .expiresAt(Instant.now().plusSeconds(Math.max(ttlSeconds, 600)))
                 .build();
@@ -298,6 +347,63 @@ public class EmailOtpService {
                               </div>
                               <p style="margin:0 0 8px;font-size:14px;line-height:1.6;">
                                 Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email.
+                              </p>
+                              <p style="margin:0;font-size:14px;line-height:1.6;">
+                                Trân trọng,<br/><strong>Đội ngũ WOODFURNI</strong>
+                              </p>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style="background:#f4f1ec;padding:16px 32px;text-align:center;font-size:12px;color:#7a736a;">
+                              © 2026 WOODFURNI. Email này được gửi tự động, vui lòng không trả lời.
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>
+                  </table>
+                </body>
+                </html>
+                """.formatted(minutes, code);
+    }
+
+    /**
+     * HTML body for forgot-password OTP emails — same template as register
+     * but with copy that explains the code is for resetting a password.
+     */
+    private String buildForgotPasswordHtmlBody(String code, long ttl) {
+        long minutes = ttl / 60;
+        return """
+                <!DOCTYPE html>
+                <html lang="vi">
+                <head><meta charset="UTF-8"></head>
+                <body style="margin:0;padding:0;background:#f4f1ec;font-family:'Segoe UI',Arial,sans-serif;color:#2b2a27;">
+                  <table role="presentation" width="100%%" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                      <td align="center" style="padding:32px 12px;">
+                        <table role="presentation" width="520" cellspacing="0" cellpadding="0" border="0"
+                               style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.06);">
+                          <tr>
+                            <td style="background:#5a3a22;color:#fff;padding:24px 32px;text-align:center;">
+                              <h1 style="margin:0;font-size:22px;letter-spacing:2px;">WOODFURNI</h1>
+                              <p style="margin:6px 0 0;font-size:13px;opacity:.9;">Đặt lại mật khẩu</p>
+                            </td>
+                          </tr>
+                          <tr>
+                            <td style="padding:32px;">
+                              <p style="margin:0 0 16px;font-size:15px;">Xin chào,</p>
+                              <p style="margin:0 0 24px;font-size:15px;line-height:1.6;">
+                                Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản của bạn. Vui lòng sử dụng mã xác nhận
+                                bên dưới để tiếp tục. Mã có hiệu lực trong vòng <strong>%d phút</strong>.
+                              </p>
+                              <div style="text-align:center;margin:24px 0;">
+                                <div style="display:inline-block;background:#f9f5ef;border:1px dashed #c9a97a;border-radius:10px;
+                                            padding:18px 28px;letter-spacing:12px;font-size:32px;font-weight:700;color:#5a3a22;">
+                                  %s
+                                </div>
+                              </div>
+                              <p style="margin:0 0 8px;font-size:14px;line-height:1.6;">
+                                Nếu bạn không thực hiện yêu cầu này, vui lòng bổ qua email và mật khẩu của bạn sẽ được giữ nguyên.
                               </p>
                               <p style="margin:0;font-size:14px;line-height:1.6;">
                                 Trân trọng,<br/><strong>Đội ngũ WOODFURNI</strong>

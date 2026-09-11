@@ -2,7 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import MainLayout from '../layouts/MainLayout.jsx';
 import { ProtectedRoute } from '../components/index.js';
 
-import { LoginPage, RegisterPage } from '../features/auth/index.js';
+import { LoginPage, RegisterPage, ForgotPasswordPage } from '../features/auth/index.js';
 import { ProductListPage, ProductDetailPage } from '../features/catalog/index.js';
 import { CartPage } from '../features/cart/index.js';
 import { CheckoutPage } from '../features/checkout/index.js';
@@ -14,7 +14,7 @@ import NotFoundPage from '../pages/NotFoundPage.jsx';
  * AppRouter.
  *
  * Public routes (no auth):
- *   /login, /register
+ *   /login, /register, /forgot-password
  *
  * Storefront (with MainLayout, no auth required):
  *   /, /products, /products/:id
@@ -28,6 +28,7 @@ export default function AppRouter() {
             {/* Auth — bare layout */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
+            <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
             {/* Storefront — with MainLayout */}
             <Route element={<MainLayout />}>

@@ -30,4 +30,20 @@ export const authApi = {
 
     verifyRegistrationOtp: (email, code) =>
         apiClient.post('/auth/otp/verify', { email, code }).then((r) => r.data.data),
+
+    /**
+     * Forgot-password flow:
+     *   sendForgotPasswordOtp → user receives 6-digit code by email
+     *   verifyForgotPasswordOtp → server returns single-use otpToken
+     *   resetPassword({ otpToken, newPassword, confirmNewPassword })
+     *                        → password replaced server-side.
+     */
+    sendForgotPasswordOtp: (email) =>
+        apiClient.post('/auth/otp/forgot-password/send', { email }).then((r) => r.data.data),
+
+    verifyForgotPasswordOtp: (email, code) =>
+        apiClient.post('/auth/otp/forgot-password/verify', { email, code }).then((r) => r.data.data),
+
+    resetPassword: (payload) =>
+        apiClient.post('/auth/password/reset', payload).then((r) => r.data),
 };

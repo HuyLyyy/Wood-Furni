@@ -80,4 +80,54 @@ public class OtpController {
                 .build();
         return ResponseEntity.ok(ApiResponse.success(result.getMessage(), body));
     }
+
+    @PostMapping("/forgot-password/send")
+    @Operation(summary = "Send forgot-password OTP",
+            description = "Sends a 6-digit OTP to the email so the user can prove "
+                    + "ownership and reset their password. Returns 400 if the "
+                    + "email is not registered.")
+    public ResponseEntity<ApiResponse<OtpSendResponse>> sendForgotPassword(
+            @Valid @RequestBody OtpSendRequest request) {
+        ApiResponse<EmailOtpService.OtpSendResult> result =
+                emailOtpService.sendForgotPasswordOtp(request.getEmail());
+
+        if (!result.isSuccess()) {
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error(result.getMessage()));
+        }
+
+        EmailOtpService.OtpSendResult r = result.getData();
+        OtpSendResponse body = OtpSendResponse.builder()
+                .ttlSeconds(r.ttlSeconds() > 0 ? r.ttlSeconds() : null)
+                .cooldownSeconds(r.cooldownSeconds() > 0 ? r.cooldownSeconds() : null)
+                .devOtpCode(r.devOtpCode())
+                .build();
+        return ResponseEntity.ok(ApiResponse.success(result.getMessage(), body));
+    }
+
+    @PostMapping("/forgot-password/verify")
+    @Operation(summary = "Verify forgot-password OTP",
+            description = "Validates the 6-digit code and returns a single-use "
+                    + "otpToken the client passes to /auth/password/reset.")
+    public ResponseEntity<ApiResponse<OtpVerifyResponse>> verifyForgotPassword(
+            @Valid @RequestBody OtpVerifyRequest request) {
+        ApiResponse<EmailOtpService.OtpVerifyResult> result =
+                emailOtpService.verifyForgotPasswordOtp(request.getEmail(), request.getCode());
+
+        if (!result.isSuccess() || result.getData() == null || result.getData().otpToken() == null) {
+            int status = "Mã xác nhận không đúng".equals(result.getMessage()) ? 200 : 400;
+            if (status == 200 && result.getData() != null) {
+                OtpVerifyResponse body = OtpVerifyResponse.builder()
+                        .remainingAttempts(result.getData().remainingAttempts())
+                        .build();
+                return ResponseEntity.ok(ApiResponse.success(result.getMessage(), body));
+            }
+            return ResponseEntity.badRequest().body(ApiResponse.error(result.getMessage()));
+        }
+
+        OtpVerifyResponse body = OtpVerifyResponse.builder()
+                .otpToken(result.getData().otpToken())
+                .build();
+        return ResponseEntity.ok(ApiResponse.success(result.getMessage(), body));
+    }
 }
