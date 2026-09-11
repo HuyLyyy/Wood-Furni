@@ -1,5 +1,6 @@
 package com.woodfurni.inventory.service;
 
+import com.woodfurni.catalog.product.enums.ProductStatus;
 import com.woodfurni.catalog.product.model.Product;
 import com.woodfurni.catalog.product.repository.ProductRepository;
 import com.woodfurni.common.EntityNotFoundException;
@@ -81,6 +82,31 @@ public class InventoryService {
                 resolveProductName(inventory.getProductId()),
                 currentOnHand,
                 threshold);
+    }
+
+    /**
+     * Sync the product's display status with its actual available stock.
+     * <ul>
+     *   <li>quantityOnHand == 0  → ProductStatus.OUT_OF_STOCK</li>
+     *   <li>quantityOnHand  > 0  → ProductStatus.ACTIVE (only if previously OUT_OF_STOCK)</li>
+     * </ul>
+     * This keeps the "Còn hàng / Hết hàng" badge in customer-app correct at all times.
+     */
+    private void syncProductStatus(String productId, int quantityOnHand) {
+        if (productId == null) return;
+        Product product = productRepository.findById(productId).orElse(null);
+        if (product == null) return;
+
+        ProductStatus targetStatus = quantityOnHand <= 0
+                ? ProductStatus.OUT_OF_STOCK
+                : ProductStatus.ACTIVE;
+
+        if (product.getStatus() == targetStatus) return; // nothing to change
+
+        product.setStatus(targetStatus);
+        productRepository.save(product);
+        log.info("[InventoryService] Synced product {} status → {} (quantityOnHand={})",
+                productId, targetStatus, quantityOnHand);
     }
 
     /**
@@ -264,6 +290,7 @@ public class InventoryService {
 
         // After delivery, quantityOnHand may have crossed the low-stock threshold.
         maybeNotifyLowStock(result, /*previousOnHand=*/ -1);
+        syncProductStatus(productId, result.getQuantityOnHand());
     }
 
     /**
@@ -328,6 +355,7 @@ public class InventoryService {
                 actorName, actorUserId, reason, "MANUAL_ADJUST");
 
         maybeNotifyLowStock(result, previousOnHand);
+        syncProductStatus(productId, newOnHand);
 
         return toResponse(result, null, null);
     }
