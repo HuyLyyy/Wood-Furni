@@ -30,7 +30,7 @@ public class ProductController {
 
     @GetMapping
     @Operation(summary = "Search and filter products",
-               description = "Supports keyword (text search), category, environment, room, woodType, price range, sorting, and pagination")
+               description = "Supports keyword (text search), category, environment, room, woodType, price range, status, sorting, and pagination")
     public ResponseEntity<ApiResponse<PageResponse<ProductResponse>>> searchProducts(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String category,
@@ -39,6 +39,7 @@ public class ProductController {
             @RequestParam(required = false, name = "woodType") String woodType,
             @RequestParam(required = false) java.math.BigDecimal minPrice,
             @RequestParam(required = false) java.math.BigDecimal maxPrice,
+            @RequestParam(required = false) ProductStatus status,
             @RequestParam(required = false) String sort,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
@@ -54,6 +55,7 @@ public class ProductController {
                 .woodType(woodType)
                 .minPrice(minPrice)
                 .maxPrice(maxPrice)
+                .status(status)
                 .sort(sort)
                 .build();
 

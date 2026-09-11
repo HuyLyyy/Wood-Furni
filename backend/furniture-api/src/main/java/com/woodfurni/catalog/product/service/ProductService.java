@@ -57,52 +57,70 @@ public class ProductService {
      * - Supported: price,asc / -price / ratingAverage
      */
     public PageResponse<ProductResponse> searchProducts(ProductSearchRequest request, int page, int size, boolean isStaff) {
-        // ── 1. Build the base Mongo query with non-price filters only
+        // ── 1. Build the base Mongo query with non-price, non-status filters
         Query query = buildBaseQuery(request, isStaff);
         boolean hasPriceFilter = request.getMinPrice() != null || request.getMaxPrice() != null;
+        boolean hasStatusFilter = request.getStatus() != null;
         Sort sort = buildSort(request.getSort());
 
-        // ── 2. Fetch only the requested page from MongoDB.
+        // ── 2. Decide which path to take.
         //
         //    The previous version called `mongoTemplate.find(query, Product.class)`
         //    with no skip/limit, which loaded the entire ACTIVE catalog into
-        //    the JVM before paginating in Java. Once the catalog grew past a
-        //    few hundred SKUs the response exceeded the 15 s axios timeout on
-        //    the storefront and the customer saw "Không thể tải sản phẩm.
-        //    Vui lòng thử lại.".
+        //    the JVM before paginating in Java.
         //
-        //    Two cases:
-        //      a) no price filter                  → simple: page + sort in DB,
-        //                                            one round-trip, sub-second
-        //                                            response.
-        //      b) price filter present             → the effective price is
-        //                                            `salePrice` (if positive)
-        //                                            else `price`, which Mongo
-        //                                            can't express in a single
-        //                                            query. We still have to
-        //                                            scan in Java, but we only
-        //                                            page across the matching
-        //                                            subset, not the whole
-        //                                            collection.
+        //    Three cases:
+        //      a) no price filter AND no status filter
+        //            → simple: page + sort in DB, one round-trip.
+        //      b) price filter OR status filter
+        //            → cannot push the filter into a single BSON
+        //              expression (effective price is derived; status can
+        //              drift from the stored value when stock changes).
+        //              We fetch all candidates that match the other
+        //              criteria, batch-load their inventory, then filter
+        //              and paginate in Java.
         java.math.BigDecimal minP = request.getMinPrice();
         java.math.BigDecimal maxP = request.getMaxPrice();
+        ProductStatus statusFilter = request.getStatus();
 
         List<Product> pageItems;
         long total;
 
-        if (!hasPriceFilter) {
+        if (!hasPriceFilter && !hasStatusFilter) {
             // Case (a): cheap path. Mongo handles skip/limit/sort via indexes.
-            // We rebuild a fresh Query so the same base criteria get applied
-            // twice (once for the count, once for the page) without mutating
-            // the shared instance.
             Query paged = buildBaseQuery(request, isStaff).with(sort).skip((long) page * size).limit(size);
             pageItems = mongoTemplate.find(paged, Product.class);
             total = mongoTemplate.count(query, Product.class);
         } else {
-            // Case (b): fetch all matches (still has to live in memory because
-            // the effective-price rule isn't a single BSON expression), then
-            // sort and paginate in Java.
+            // Case (b): fetch all matches that satisfy the non-status, non-price
+            // criteria, then apply both filters in Java. The status filter is
+            // evaluated against the EFFECTIVE status (post-stock-override) so
+            // the listing reflects the same value the customer-app sees — this
+            // is the only way to make 'OUT_OF_STOCK' filtering mean "really out
+            // of stock right now" rather than whatever was stored.
             List<Product> candidates = mongoTemplate.find(query.with(sort), Product.class);
+
+            // Batch-load inventory for ALL candidates in one query.
+            List<String> candidateProductIds = candidates.stream()
+                    .map(Product::getId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toList());
+            Map<String, Integer> stockByProductId = new java.util.HashMap<>();
+            if (!candidateProductIds.isEmpty()) {
+                Query invQuery = new Query(Criteria.where("productId").in(candidateProductIds));
+                for (var inv : mongoTemplate.find(invQuery, com.woodfurni.inventory.model.Inventory.class)) {
+                    stockByProductId.put(inv.getProductId(), inv.getQuantityOnHand());
+                }
+            }
+
+            java.util.function.Predicate<Product> effectiveStatusPredicate = hasStatusFilter
+                    ? p -> {
+                        int onHand = stockByProductId.getOrDefault(p.getId(), 0);
+                        ProductStatus eff = computeEffectiveStatus(p.getStatus(), onHand);
+                        return eff == statusFilter;
+                    }
+                    : p -> true;
+
             List<Product> filtered = candidates.stream()
                     .filter(p -> {
                         java.math.BigDecimal eff = (p.getSalePrice() != null && p.getSalePrice().signum() > 0)
@@ -110,7 +128,7 @@ public class ProductService {
                         if (eff == null) return false;
                         if (minP != null && eff.compareTo(minP) < 0) return false;
                         if (maxP != null && eff.compareTo(maxP) > 0) return false;
-                        return true;
+                        return effectiveStatusPredicate.test(p);
                     })
                     .collect(Collectors.toList());
 
@@ -121,6 +139,23 @@ public class ProductService {
         }
 
         return buildPageResponse(pageItems, page, size, total);
+    }
+
+    /**
+     * Compute the on-the-wire status for a product given its current
+     * {@code quantityOnHand}. Must mirror the rule in
+     * {@code toResponseWithStock} exactly so listing/filter stays
+     * consistent with the per-product response.
+     */
+    private ProductStatus computeEffectiveStatus(ProductStatus stored, int onHand) {
+        if (stored == ProductStatus.OUT_OF_STOCK
+                || stored == ProductStatus.ACTIVE
+                || stored == ProductStatus.DRAFT) {
+            if (onHand <= 0) return ProductStatus.OUT_OF_STOCK;
+            if (stored == ProductStatus.OUT_OF_STOCK) return ProductStatus.ACTIVE;
+            return stored;
+        }
+        return stored; // DISCONTINUED, etc. — pass through unchanged.
     }
 
     /**
