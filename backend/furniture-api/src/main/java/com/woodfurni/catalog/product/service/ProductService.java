@@ -146,16 +146,31 @@ public class ProductService {
      * {@code quantityOnHand}. Must mirror the rule in
      * {@code toResponseWithStock} exactly so listing/filter stays
      * consistent with the per-product response.
+     *
+     * <p>The two stock-reactive statuses are:
+     * <ul>
+     *   <li>{@code ACTIVE}   → shown as "Còn hàng" when onHand &gt; 0;
+     *                          shown as "Hết hàng" when onHand = 0.</li>
+     *   <li>{@code OUT_OF_STOCK} → ALWAYS shown as "Hết hàng", regardless of
+     *                              actual stock (admin intentional signal).</li>
+     * </ul>
+     * The other statuses ({@code DRAFT}, {@code DISCONTINUED}) are admin
+     * intent and pass through unchanged.
      */
     private ProductStatus computeEffectiveStatus(ProductStatus stored, int onHand) {
-        if (stored == ProductStatus.OUT_OF_STOCK
-                || stored == ProductStatus.ACTIVE
-                || stored == ProductStatus.DRAFT) {
-            if (onHand <= 0) return ProductStatus.OUT_OF_STOCK;
-            if (stored == ProductStatus.OUT_OF_STOCK) return ProductStatus.ACTIVE;
-            return stored;
+        // OUT_OF_STOCK is an admin intentional signal — respect it regardless
+        // of stock level so the badge can be forced "Hết hàng" even on a
+        // product that has stock (e.g. discontinued / seasonal hold).
+        if (stored == ProductStatus.OUT_OF_STOCK) return ProductStatus.OUT_OF_STOCK;
+
+        // ACTIVE / DRAFT: surface as ACTIVE when stock exists, or
+        // OUT_OF_STOCK when quantityOnHand is zero.
+        if (stored == ProductStatus.ACTIVE || stored == ProductStatus.DRAFT) {
+            return onHand > 0 ? ProductStatus.ACTIVE : ProductStatus.OUT_OF_STOCK;
         }
-        return stored; // DISCONTINUED, etc. — pass through unchanged.
+
+        // DISCONTINUED, etc. — pass through unchanged (admin intent).
+        return stored;
     }
 
     /**
@@ -607,25 +622,21 @@ public class ProductService {
         }
 
         // Defense-in-depth: derive the on-the-wire status from real stock.
-        // The stored Product.status is a manual admin intent (ACTIVE / DRAFT /
-        // DISCONTINUED / OUT_OF_STOCK) and can drift from inventory when:
+        // The stored Product.status is a manual admin intent and can drift from
+        // inventory when:
         //   - admin set ACTIVE but product was already out of stock,
         //   - DB was edited directly (seed data, migration, manual fix),
         //   - sync race between concurrent adjust() calls.
+        //
         // The customer-app badge ("Còn hàng / Hết hàng") is driven by this
         // status field, so the value we ship MUST equal the real stock state.
-        ProductStatus effectiveStatus = product.getStatus();
-        if (product.getStatus() == ProductStatus.OUT_OF_STOCK
-                || product.getStatus() == ProductStatus.ACTIVE
-                || product.getStatus() == ProductStatus.DRAFT) {
-            if (onHand <= 0) {
-                effectiveStatus = ProductStatus.OUT_OF_STOCK;
-            } else if (product.getStatus() == ProductStatus.OUT_OF_STOCK) {
-                // Stock has been restocked — surface as ACTIVE so the badge
-                // flips back to "Còn hàng" immediately on the next read.
-                effectiveStatus = ProductStatus.ACTIVE;
-            }
-        }
+        //
+        // Two stock-reactive statuses:
+        //   OUT_OF_STOCK → ALWAYS "Hết hàng" regardless of actual stock
+        //                  (admin intentionally marks it unavailable).
+        //   ACTIVE / DRAFT → "Còn hàng" when onHand > 0, else "Hết hàng".
+        // Other statuses (DISCONTINUED, etc.) pass through unchanged.
+        ProductStatus effectiveStatus = computeEffectiveStatus(product.getStatus(), onHand);
 
         return ProductResponse.builder()
                 .id(product.getId())
