@@ -99,15 +99,6 @@ export default function LoginPage() {
                         {submitting ? 'Đang đăng nhập...' : 'Đăng nhập'}
                     </Button>
                 </form>
-
-                <p className="login-card__hint">
-                    Bạn là khách hàng? Truy cập{' '}
-                    <a href="http://localhost:5173">WOODFURNI Store</a>.
-                </p>
-
-                <p className="login-card__legal">
-                    <Link to="/help">Quên mật khẩu?</Link>
-                </p>
             </div>
         </div>
     );
