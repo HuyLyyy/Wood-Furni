@@ -509,6 +509,29 @@ public class ProductService {
             product.setWarranty(request.getWarranty());
         }
 
+        // Status is optional — when provided (i.e. the admin changed the status
+        // dropdown in the edit form) we apply the change.  The ACTIVE guard
+        // (images required + stock check) is handled here so a status change
+        // through the edit form is treated the same as PATCH /products/{id}/status.
+        if (request.getStatus() != null) {
+            ProductStatus newStatus = ProductStatus.valueOf(request.getStatus());
+            if (newStatus == ProductStatus.ACTIVE) {
+                if (product.getImages() == null || product.getImages().isEmpty()) {
+                    throw new IllegalArgumentException("Cannot publish product without at least one image");
+                }
+                int onHand = inventoryService.getQuantityOnHand(product.getId());
+                if (onHand <= 0) {
+                    log.info("[ProductService] Blocking ACTIVE via update for productId={} — quantityOnHand={}. Forcing OUT_OF_STOCK.",
+                            product.getId(), onHand);
+                    product.setStatus(ProductStatus.OUT_OF_STOCK);
+                } else {
+                    product.setStatus(newStatus);
+                }
+            } else {
+                product.setStatus(newStatus);
+            }
+        }
+
         Product saved = productRepository.save(product);
         return toResponse(saved, null, null);
     }
