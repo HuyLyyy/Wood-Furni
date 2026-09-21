@@ -56,24 +56,27 @@ export async function downloadEvidenceFile(publicUrl, originalName) {
         url = publicUrl;
     }
 
-    // Normalise: any of these input forms must end up as a relative path that,
-    // combined with apiClient.baseURL ("/api/v1"), produces the correct final URL.
-    //   /api/inventory/evidence/...        → /inventory/evidence/...
-    //   /api/v1/inventory/evidence/...     → /inventory/evidence/...   (strip prefix)
-    //   /inventory/evidence/...            → /inventory/evidence/...   (no prefix)
+    // Normalise: any input form must end up as a RELATIVE path that, combined
+    // with apiClient.baseURL ("/api/v1"), produces /api/v1/inventory/evidence/{id}.
     //
-    // CRITICAL: never return an absolute path starting with "/api/v1/" because
-    // apiClient.baseURL is already "/api/v1" — otherwise axios will concatenate
-    // to "/api/v1/api/v1/..." and the gateway returns 500.
-    if (url.includes('/evidence/')) {
-        const idx = url.indexOf('/evidence/');
-        // suffix starts with "/evidence/" — keep everything from there.
-        url = url.substring(idx);
-    } else if (url.startsWith('/api/v1/')) {
-        url = url.substring('/api/v1'.length);
-    } else if (url.startsWith('/api/')) {
-        url = url.substring('/api'.length);
-    } else if (!url.startsWith('/api/v1')) {
+    // Input forms the backend / DB may serve:
+    //   /api/v1/inventory/evidence/{id}     (current correct form)
+    //   /api/v1/evidence/{id}               (legacy buggy form, just in case)
+    //   /api/inventory/evidence/{id}        (old context-path)
+    //   /api/evidence/{id}                  (old buggy)
+    //   /inventory/evidence/{id}            (no prefix)
+    //   /evidence/{id}                      (no prefix, no inventory)
+    //   absolute URL                        (pathname extracted above)
+    //
+    // CRITICAL: NEVER return a URL starting with "/api/v1/" — apiClient.baseURL
+    // is already "/api/v1", so axios would concatenate to "/api/v1/api/v1/..."
+    // and the gateway returns 500.
+    const idx = url.indexOf('/evidence/');
+    if (idx >= 0) {
+        // Whatever prefix appears before /evidence/, replace it with /inventory.
+        // This is the only safe transformation regardless of how the URL was stored.
+        url = '/inventory' + url.substring(idx);
+    } else if (!url.startsWith('/api/v1/')) {
         url = '/api/v1' + (url.startsWith('/') ? url : '/' + url);
     }
 
