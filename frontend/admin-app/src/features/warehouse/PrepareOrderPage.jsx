@@ -7,6 +7,7 @@ import { Button } from '../../components/index.js';
 import { statusLabel } from '../../utils/orderMeta.js';
 import { formatCurrency, formatDateTime } from '../../utils/format.js';
 import PrintDeliveryNoteModal from '../order/PrintDeliveryNoteModal.jsx';
+import PrintPaymentReceiptModal from '../order/PrintPaymentReceiptModal.jsx';
 import './PrepareOrderPage.css';
 
 const PAGE_SIZE = 20;
@@ -35,6 +36,7 @@ export default function PrepareOrderPage() {
     const [totalPages, setTotalPages] = useState(0);
     const [markingId, setMarkingId] = useState(null);
     const [printOrder, setPrintOrder] = useState(null);
+    const [receiptOrder, setReceiptOrder] = useState(null);
 
     // ── WebSocket ───────────────────────────────────────────────────────────
     const { socket, connected } = useRealtime(true);
@@ -145,6 +147,7 @@ export default function PrepareOrderPage() {
                             markingId={markingId}
                             onMarkPrepared={handleMarkPrepared}
                             onPrint={setPrintOrder}
+                            onPrintReceipt={setReceiptOrder}
                         />
                     ))}
                 </div>
@@ -176,11 +179,18 @@ export default function PrepareOrderPage() {
                     onClose={() => setPrintOrder(null)}
                 />
             )}
+
+            {receiptOrder && (
+                <PrintPaymentReceiptModal
+                    order={receiptOrder}
+                    onClose={() => setReceiptOrder(null)}
+                />
+            )}
         </div>
     );
 }
 
-function OrderCard({ order, markingId, onMarkPrepared, onPrint }) {
+function OrderCard({ order, markingId, onMarkPrepared, onPrint, onPrintReceipt }) {
     const isMarking = markingId === order.id;
     const isNew = order._isNew;
 
@@ -248,6 +258,12 @@ function OrderCard({ order, markingId, onMarkPrepared, onPrint }) {
                         onClick={() => onPrint?.(order)}
                     >
                         🖨️ In phiếu
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        onClick={() => onPrintReceipt?.(order)}
+                    >
+                        💵 In biên nhận
                     </Button>
                     <Button
                         variant="primary"

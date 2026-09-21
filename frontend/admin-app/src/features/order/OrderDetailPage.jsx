@@ -16,6 +16,7 @@ import { formatCurrency, formatDateTime } from '../../utils/format.js';
 import { can } from '../../utils/permissions.js';
 import ReceiveReturnModal from './ReceiveReturnModal.jsx';
 import PrintDeliveryNoteModal from './PrintDeliveryNoteModal.jsx';
+import PrintPaymentReceiptModal from './PrintPaymentReceiptModal.jsx';
 import './OrderDetailPage.css';
 
 /**
@@ -68,6 +69,7 @@ export default function OrderDetailPage() {
     const [acting, setActing] = useState(false);
     const [showReceiveReturn, setShowReceiveReturn] = useState(false);
     const [showPrintNote, setShowPrintNote] = useState(false);
+    const [showPrintReceipt, setShowPrintReceipt] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -249,6 +251,12 @@ export default function OrderDetailPage() {
                             >
                                 🖨️ In phiếu giao hàng
                             </Button>
+                            <Button
+                                variant="ghost"
+                                onClick={() => setShowPrintReceipt(true)}
+                            >
+                                💵 In biên nhận thu tiền
+                            </Button>
                         </div>
                     </section>
                 )}
@@ -273,6 +281,12 @@ export default function OrderDetailPage() {
                                 onClick={() => setShowPrintNote(true)}
                             >
                                 🖨️ In phiếu giao hàng
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                onClick={() => setShowPrintReceipt(true)}
+                            >
+                                💵 In biên nhận thu tiền
                             </Button>
                         </div>
                     </section>
@@ -302,6 +316,12 @@ export default function OrderDetailPage() {
                                 onClick={() => setShowPrintNote(true)}
                             >
                                 🖨️ In phiếu giao hàng
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                onClick={() => setShowPrintReceipt(true)}
+                            >
+                                💵 In biên nhận thu tiền
                             </Button>
                         </div>
                     </section>
@@ -457,14 +477,24 @@ export default function OrderDetailPage() {
                     (i.e. once the order has been handed to warehouse for packing).
                     PENDING orders have no shipping address confirmed yet. */}
                 {['CONFIRMED', 'PROCESSING', 'SHIPPING', 'DELIVERED'].includes(order.status) && (
-                    <Button
-                        variant="ghost"
-                        fullWidth
-                        onClick={() => setShowPrintNote(true)}
-                        style={{ marginBottom: 8 }}
-                    >
-                        🖨️ In phiếu giao hàng
-                    </Button>
+                    <>
+                        <Button
+                            variant="ghost"
+                            fullWidth
+                            onClick={() => setShowPrintNote(true)}
+                            style={{ marginBottom: 8 }}
+                        >
+                            🖨️ In phiếu giao hàng
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            fullWidth
+                            onClick={() => setShowPrintReceipt(true)}
+                            style={{ marginBottom: 8 }}
+                        >
+                            💵 In biên nhận thu tiền
+                        </Button>
+                    </>
                 )}
 
                 <Button variant="ghost" fullWidth onClick={() => navigate('/orders')}>← Quay lại danh sách</Button>
@@ -484,6 +514,13 @@ export default function OrderDetailPage() {
                 <PrintDeliveryNoteModal
                     order={order}
                     onClose={() => setShowPrintNote(false)}
+                />
+            )}
+
+            {showPrintReceipt && order && (
+                <PrintPaymentReceiptModal
+                    order={order}
+                    onClose={() => setShowPrintReceipt(false)}
                 />
             )}
         </div>
