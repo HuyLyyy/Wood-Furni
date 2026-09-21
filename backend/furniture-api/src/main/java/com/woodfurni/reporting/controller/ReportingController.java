@@ -44,11 +44,17 @@ public class ReportingController {
     // ============================================================
     @GetMapping("/revenue")
     @Operation(summary = "Monthly revenue",
-               description = "Aggregated revenue by month for the last 12 months")
-    public ResponseEntity<ApiResponse<List<MonthlyRevenueResponse>>> getMonthlyRevenue(
-            @RequestParam(defaultValue = "month") String range) {
-        // For now only "month" range is supported (12 most recent months)
-        // Future: "week", "day", custom ranges
+               description = "Aggregated revenue by month. " +
+                       "If year + month are provided, returns daily revenue for that month " +
+                       "(yyyy-MM-dd keys, zero-filled). Otherwise returns last 12 months " +
+                       "(yyyy-MM keys).")
+    public ResponseEntity<ApiResponse<?>> getMonthlyRevenue(
+            @RequestParam(required = false) Integer year,
+            @RequestParam(required = false) Integer month) {
+        if (year != null && month != null) {
+            List<DailyRevenueResponse> daily = reportingService.getDailyRevenue(year, month);
+            return ResponseEntity.ok(ApiResponse.success(daily));
+        }
         List<MonthlyRevenueResponse> revenue = reportingService.getMonthlyRevenue();
         return ResponseEntity.ok(ApiResponse.success(revenue));
     }

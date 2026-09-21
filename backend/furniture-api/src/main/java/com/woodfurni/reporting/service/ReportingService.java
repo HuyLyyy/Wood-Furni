@@ -248,6 +248,72 @@ public class ReportingService {
         return response;
     }
 
+    /**
+     * Daily revenue for a single calendar month (1..daysInMonth rows).
+     * Returns yyyy-MM-dd keys; zero-filled for days with no orders.
+     *
+     * Pipeline:
+     *   $match   → PAID orders with createdAt in [start, endOfMonth]
+     *   $group   → bucket by yyyy-MM-dd, sum totalAmount
+     *   $project → rename _id → date
+     *   $sort    → by date ascending
+     */
+    public List<DailyRevenueResponse> getDailyRevenue(int year, int month) {
+        // Defensive: clamp month/year to sane ranges so a bad input doesn't
+        // crash the aggregation with a date-arithmetic error.
+        if (year < 2000 || year > 3000) year = LocalDate.now(ZoneOffset.UTC).getYear();
+        if (month < 1) month = 1;
+        if (month > 12) month = 12;
+
+        LocalDate firstDay = LocalDate.of(year, month, 1);
+        LocalDate nextMonthFirstDay = firstDay.plusMonths(1);
+        Instant startInstant = firstDay.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant endInstant = nextMonthFirstDay.atStartOfDay(ZoneOffset.UTC).toInstant();
+
+        List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
+        stages.add(Aggregation.match(
+                new org.springframework.data.mongodb.core.query.Criteria()
+                        .and("paymentStatus").is("PAID")
+                        .and("createdAt").gte(startInstant).lt(endInstant)));
+        stages.add(ctx -> new Document("$group",
+                new Document("_id",
+                        new Document("$dateToString",
+                                new Document("format", "%Y-%m-%d")
+                                        .append("date", "$createdAt")
+                                        .append("timezone", "UTC")))
+                        .append("revenue",
+                                new Document("$sum", "$totalAmount"))));
+        stages.add(ctx -> new Document("$project",
+                new Document("date", "$_id")
+                        .append("revenue", 1)
+                        .append("_id", 0)));
+        stages.add(ctx -> new Document("$sort", new Document("date", 1)));
+
+        Aggregation pipeline = Aggregation.newAggregation(stages);
+
+        AggregationResults<Document> results = mongoTemplate.aggregate(
+                pipeline, COL_ORDERS, Document.class);
+
+        Map<String, BigDecimal> revenueByDate = new java.util.HashMap<>();
+        for (Document doc : results) {
+            revenueByDate.put(doc.getString("date"), toBigDecimal(doc.get("revenue")));
+        }
+
+        // Fill all days in the month, zero for days with no orders.
+        List<DailyRevenueResponse> response = new ArrayList<>();
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        int daysInMonth = firstDay.lengthOfMonth();
+        for (int d = 1; d <= daysInMonth; d++) {
+            String key = LocalDate.of(year, month, d).format(formatter);
+            response.add(DailyRevenueResponse.builder()
+                    .date(key)
+                    .revenue(revenueByDate.getOrDefault(key, BigDecimal.ZERO))
+                    .build());
+        }
+
+        return response;
+    }
+
     // ============================================================
     // REPORT 3: Orders by status
     // ============================================================

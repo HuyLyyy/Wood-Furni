@@ -121,6 +121,54 @@
 .dashboard__chart-head h2 { margin: 0; font-size: 15px; }
 .dashboard__chart-sub { color: var(--color-text-muted); font-size: 12px; }
 
+/* Row layout for chart head: title on left, period picker on right. */
+.dashboard__chart-head--row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.dashboard__period-picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dashboard__period-select {
+    padding: 6px 10px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: #fff;
+    color: var(--color-text);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.dashboard__period-select:hover:not(:disabled) {
+    border-color: var(--color-primary);
+}
+
+.dashboard__period-select:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.dashboard__period-reset {
+    padding: 6px 10px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: #fff;
+    color: var(--color-text-muted);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.dashboard__period-reset:hover:not(:disabled) {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+}
+
+.dashboard__period-reset:disabled { opacity: 0.6; cursor: not-allowed; }
+
 .dashboard__chart-body { padding: 16px; flex: 1; }
 .dashboard__chart-skeleton {
     height: 280px;

@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
     ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip,
     CartesianGrid, BarChart, Bar, PieChart, Pie, Cell, Legend,
@@ -36,8 +36,35 @@ export default function DashboardPage() {
     const { isAuthenticated } = useAuth();
     const {
         summary, revenue, byStatus, topProducts,
-        loading, error, refresh,
+        revenuePeriod, loading, error, refresh, setRevenuePeriod,
     } = useDashboard();
+
+    // Year/month options for the chart period picker.
+    // - 12 most recent years (current year back to current-11).
+    // - 12 months.
+    const now = new Date();
+    const yearOptions = useMemo(() => {
+        const cy = now.getFullYear();
+        const arr = [];
+        for (let y = cy; y >= cy - 11; y--) arr.push(y);
+        return arr;
+    }, []);
+    const monthOptions = useMemo(() => {
+        const arr = [];
+        for (let m = 1; m <= 12; m++) {
+            arr.push({ value: m, label: `Tháng ${m}` });
+        }
+        return arr;
+    }, []);
+
+    const selectedYear = revenuePeriod?.year ?? now.getFullYear();
+    const selectedMonth = revenuePeriod?.month ?? (now.getMonth() + 1);
+    const isDailyView = revenuePeriod !== null;
+
+    const totalInPeriod = useMemo(
+        () => revenue.reduce((s, r) => s + (Number(r.revenue) || 0), 0),
+        [revenue]
+    );
 
     // Re-fetch on order.created so the Orders Today counter ticks up
     const handleOrderCreated = useCallback(
@@ -111,16 +138,99 @@ export default function DashboardPage() {
             {/* ===== Charts row ===== */}
             <section className="dashboard__charts">
                 <div className="dashboard__chart-card dashboard__chart-card--wide">
-                    <header className="dashboard__chart-head">
-                        <h2>Doanh thu theo tháng</h2>
-                        <span className="dashboard__chart-sub">12 tháng gần nhất</span>
+                    <header className="dashboard__chart-head dashboard__chart-head--row">
+                        <div>
+                            <h2>Doanh thu {isDailyView ? `tháng ${selectedMonth}/${selectedYear}` : 'theo tháng'}</h2>
+                            <span className="dashboard__chart-sub">
+                                {isDailyView
+                                    ? `Tổng: ${formatCurrency(totalInPeriod)} — ${revenue.length} ngày`
+                                    : '12 tháng gần nhất'}
+                            </span>
+                        </div>
+                        <div className="dashboard__period-picker">
+                            <select
+                                className="dashboard__period-select"
+                                aria-label="Chọn tháng"
+                                value={selectedMonth}
+                                onChange={(e) => setRevenuePeriod({
+                                    year: selectedYear,
+                                    month: Number(e.target.value),
+                                })}
+                                disabled={loading}
+                            >
+                                {monthOptions.map((m) => (
+                                    <option key={m.value} value={m.value}>{m.label}</option>
+                                ))}
+                            </select>
+                            <select
+                                className="dashboard__period-select"
+                                aria-label="Chọn năm"
+                                value={selectedYear}
+                                onChange={(e) => setRevenuePeriod({
+                                    year: Number(e.target.value),
+                                    month: selectedMonth,
+                                })}
+                                disabled={loading}
+                            >
+                                {yearOptions.map((y) => (
+                                    <option key={y} value={y}>{y}</option>
+                                ))}
+                            </select>
+                            {isDailyView && (
+                                <button
+                                    type="button"
+                                    className="dashboard__period-reset"
+                                    onClick={() => setRevenuePeriod(null)}
+                                    disabled={loading}
+                                    title="Quay lại 12 tháng gần nhất"
+                                >
+                                    12 tháng
+                                </button>
+                            )}
+                        </div>
                     </header>
                     <div className="dashboard__chart-body">
                         {loading ? (
                             <ChartSkeleton />
                         ) : revenue.length === 0 ? (
                             <ChartEmpty text="Chưa có dữ liệu doanh thu" />
+                        ) : isDailyView ? (
+                            // ── Daily bar chart for the selected month ──
+                            <ResponsiveContainer width="100%" height={280}>
+                                <BarChart
+                                    data={revenue.map((r) => ({
+                                        ...r,
+                                        // "2026-09-15" → "15" for x-axis label.
+                                        label: String(Number(String(r.date).split('-')[2])),
+                                        revenue: Number(r.revenue) || 0,
+                                    }))}
+                                    margin={{ top: 10, right: 16, bottom: 0, left: 0 }}
+                                >
+                                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                    <XAxis
+                                        dataKey="label"
+                                        tick={{ fontSize: 11 }}
+                                        interval={0}
+                                        angle={-45}
+                                        textAnchor="end"
+                                        height={50}
+                                    />
+                                    <YAxis tick={{ fontSize: 12 }} tickFormatter={(v) => formatNumber(v)} />
+                                    <Tooltip
+                                        formatter={(v) => formatCurrency(v)}
+                                        labelFormatter={(label) => `Ngày ${label}/${selectedMonth}/${selectedYear}`}
+                                        contentStyle={{ borderRadius: 8, fontSize: 13 }}
+                                    />
+                                    <Bar
+                                        dataKey="revenue"
+                                        name="Doanh thu"
+                                        fill="#6b4f2a"
+                                        radius={[4, 4, 0, 0]}
+                                    />
+                                </BarChart>
+                            </ResponsiveContainer>
                         ) : (
+                            // ── Monthly line chart (default) ──
                             <ResponsiveContainer width="100%" height={280}>
                                 <LineChart data={revenue.map((r) => ({
                                     ...r,
