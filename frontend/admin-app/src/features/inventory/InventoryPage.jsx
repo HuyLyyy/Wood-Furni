@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import usePageTitle from '../../hooks/usePageTitle.js';
 import useInventory from '../../hooks/useInventory.js';
-import { adminInventoryApi } from '../../services/apiAdminInventory.js';
+import { adminInventoryApi, downloadEvidenceFile } from '../../services/apiAdminInventory.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import {
     Button, DataTable, AdminPagination, Modal, FormField,
@@ -561,16 +561,24 @@ function HistoryModal({ target, onClose, onDone }) {
                                         </td>
                                         <td className="hist-evidence">
                                             {e.evidenceUrl ? (
-                                                <a
-                                                    href={e.evidenceUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
+                                                <button
+                                                    type="button"
                                                     className="hist-evidence-link"
-                                                    title={e.evidenceOriginalName}
-                                                    download={e.evidenceOriginalName}
+                                                    title={e.evidenceOriginalName || 'Tải minh chứng'}
+                                                    onClick={async () => {
+                                                        try {
+                                                            await downloadEvidenceFile(e.evidenceUrl, e.evidenceOriginalName);
+                                                        } catch (err) {
+                                                            toast.error(
+                                                                err?.message
+                                                                || (typeof err?.data?.message === 'string' ? err.data.message : null)
+                                                                || 'Tải minh chứng thất bại'
+                                                            );
+                                                        }
+                                                    }}
                                                 >
                                                     📥 Tải (.xlsx)
-                                                </a>
+                                                </button>
                                             ) : '—'}
                                         </td>
                                     </tr>

@@ -536,6 +536,25 @@ public class InventoryService {
     }
 
     /**
+     * Look up the original (user-friendly) filename of a stored evidence file
+     * by its on-disk stored filename (the UUID). Used by the download endpoint
+     * to set Content-Disposition correctly.
+     *
+     * Returns empty when not found (file is on disk but no history row —
+     * can happen if Mongo was reset or record was deleted). Caller falls
+     * back to the stored filename.
+     */
+    public java.util.Optional<String> findOriginalNameByStoredFile(String storedFileName) {
+        if (storedFileName == null || storedFileName.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        return historyRepository
+                .findFirstByEvidenceFileNameOrderByCreatedAtDesc(storedFileName)
+                .map(InventoryHistory::getEvidenceOriginalName)
+                .filter(s -> s != null && !s.isBlank());
+    }
+
+    /**
      * Write one history entry.
      * Called internally by adjust(), reserve(), release(), commit().
      */

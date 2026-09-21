@@ -115,6 +115,10 @@ public class InventoryController {
     /**
      * Serve a previously uploaded evidence file for download.
      * URL pattern: GET /api/inventory/evidence/{yearMonth}/{filename}
+     *
+     * The original filename is resolved from the DB history record so that
+     * the user downloads the file with the name they uploaded it as (e.g.
+     * "phieu-dieu-chinh-2026-09.xlsx") instead of the UUID we stored on disk.
      */
     @GetMapping("/evidence/{yearMonth}/{filename:.+}")
     @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
@@ -128,15 +132,30 @@ public class InventoryController {
         if (absolute == null) {
             return ResponseEntity.notFound().build();
         }
+
+        // Look up the history record to get the user-friendly original name.
+        String originalName = inventoryService.findOriginalNameByStoredFile(filename)
+                .orElse(filename);
+
+        // Sanitise for Content-Disposition header (ASCII fallback for non-ASCII).
+        String safeAscii = originalName.replaceAll("[^\\x20-\\x7E]", "_");
+        String contentDisposition =
+                "attachment; filename=\"" + safeAscii + "\"; "
+              + "filename*=UTF-8''" + java.net.URLEncoder.encode(originalName, java.nio.charset.StandardCharsets.UTF_8);
+
+        // Pick content type by the actual on-disk extension (filename param
+        // is the UUID we stored, so use that for the sniff).
+        String lower = filename.toLowerCase();
+        MediaType contentType = lower.endsWith(".xls")
+                ? MediaType.parseMediaType("application/vnd.ms-excel")
+                : MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
         Resource resource = new FileSystemResource(absolute);
-        String originalName = filename; // the filename stored on disk; we could look it up via a DB record if needed
         return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType(
-                        filename.toLowerCase().endsWith(".xlsx")
-                                ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                : "application/vnd.ms-excel"))
-                .header(HttpHeaders.CONTENT_DISPOSITION,
-                        "attachment; filename=\"" + originalName + "\"")
+                .contentType(contentType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition)
+                // Some Excel viewers need a length hint; FileSystemResource sets Content-Length itself.
                 .body(resource);
     }
 

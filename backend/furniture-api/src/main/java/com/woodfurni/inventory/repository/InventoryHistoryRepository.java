@@ -18,4 +18,11 @@ public interface InventoryHistoryRepository extends MongoRepository<InventoryHis
      * Return paginated history entries for a product, newest first.
      */
     Page<InventoryHistory> findByProductIdOrderByCreatedAtDesc(String productId, Pageable pageable);
+
+    /**
+     * Look up the most recent history record that references the given
+     * stored evidence filename (the on-disk UUID). Used by the download
+     * endpoint to recover the original user-friendly filename.
+     */
+    java.util.Optional<InventoryHistory> findFirstByEvidenceFileNameOrderByCreatedAtDesc(String evidenceFileName);
 }
