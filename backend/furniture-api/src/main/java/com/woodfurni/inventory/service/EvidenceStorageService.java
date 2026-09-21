@@ -54,13 +54,9 @@ public class EvidenceStorageService {
 
     public EvidenceStorageService() {
         this.baseDir = resolveBaseDir();
-        try {
-            Files.createDirectories(baseDir);
-            log.info("[EvidenceStorageService] Storage directory ready: {}", baseDir.toAbsolutePath());
-        } catch (IOException e) {
-            log.error("[EvidenceStorageService] Cannot create storage directory {}", baseDir, e);
-            throw new IllegalStateException("Cannot initialise evidence storage directory", e);
-        }
+        log.info("[EvidenceStorageService] Base directory: {}  (env EVIDENCE_STORAGE_DIR={})",
+                baseDir.toAbsolutePath(),
+                System.getenv("EVIDENCE_STORAGE_DIR"));
     }
 
     private Path resolveBaseDir() {
@@ -68,7 +64,7 @@ public class EvidenceStorageService {
         if (env != null && !env.isBlank()) {
             return Paths.get(env, "inventory-evidence");
         }
-        // Fallback to system temp. Good enough for dev; configure env var for prod.
+        // Fallback to system temp. Config env var for prod durability.
         return Paths.get(System.getProperty("java.io.tmpdir"), "woodfurni-evidence", "inventory-evidence");
     }
 
