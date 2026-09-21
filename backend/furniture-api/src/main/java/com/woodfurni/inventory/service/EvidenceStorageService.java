@@ -1,56 +1,37 @@
 package com.woodfurni.inventory.service;
 
+import com.mongodb.client.gridfs.model.GridFSFile;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.types.ObjectId;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.gridfs.GridFsResource;
+import org.springframework.data.mongodb.gridfs.GridFsTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 
 /**
- * Saves inventory-adjustment evidence files to local disk.
+ * Saves inventory-adjustment evidence files to MongoDB GridFS.
  *
- * File layout on disk:
- * <pre>
- * {baseDir}/
- *   {yyyy-MM}/
- *     {uuid}.xlsx
- *     {uuid}.xls
- * </pre>
+ * Why GridFS instead of local disk?
+ *   - Render free plan has NO persistent disk → /tmp is wiped on every redeploy.
+ *   - MongoDB Atlas (also free) gives us 512MB and survives deploys forever.
+ *   - File lives next to the history record that references it; no orphan risk.
  *
- * ── Configuration ──────────────────────────────────────────────────────────
+ * Files are stored with metadata = { monthDir: "yyyy-MM", originalName, storedName }.
+ * The public URL looks like /api/v1/inventory/evidence/{gridFsId} — the controller
+ * resolves the GridFsResource from the id and streams it back.
  *
- * Option A — Dedicated persistent disk (recommended for production):
- *   Mount a persistent volume at any path, e.g. "/var/data/woodfurni/uploads"
- *   and set:
- *     EVIDENCE_STORAGE_DIR=/var/data/woodfurni/uploads
- *
- *   Make sure the path EXISTS and is writable BEFORE the app starts
- *   (Render's persistent disk mounts at the specified path automatically;
- *    create the folder via the Render dashboard or a one-off shell command).
- *
- * Option B — Render ephemeral disk (dev / preview environments):
- *   Leave EVIDENCE_STORAGE_DIR unset.
- *   Files go to /tmp/woodfurni/uploads/ (survives single deploy but lost on restart).
- *
- * ⚠️  NEVER set EVIDENCE_STORAGE_DIR to a path that requires creating parent
- *     directories (e.g. /var/lib/… or /home/… unless you are sure the
- *     container runs as root and those parents exist). Always pre-create
- *     the target directory through the hosting dashboard before deploying.
- *
- * ── Security ──────────────────────────────────────────────────────────────
- *
- * Only .xlsx / .xls are accepted (validated by extension AND content-type).
- * Max file size: 10 MB.
- * Path traversal is blocked: the resolved path is normalised and checked
- * against baseDir before any file operation.
+ * Validation rules (unchanged from local-disk version):
+ *   - Only .xlsx / .xls accepted (extension check).
+ *   - Max 10 MB.
+ *   - Suspicious Content-Types logged but not rejected.
  */
 @Slf4j
 @Service
@@ -72,41 +53,25 @@ public class EvidenceStorageService {
             long size
     ) {}
 
-    private final Path baseDir;
+    public record StoredFileWithId(
+            String gridFsId,
+            StoredFile storedFile
+    ) {}
 
-    public EvidenceStorageService() {
-        this.baseDir = resolveBaseDir();
-        String envValue = System.getenv("EVIDENCE_STORAGE_DIR");
-        log.info("[EvidenceStorageService] baseDir={}  EVIDENCE_STORAGE_DIR={}",
-                baseDir.toAbsolutePath(), envValue != null ? envValue : "(not set — using tmpdir fallback)");
+    private final GridFsTemplate gridFsTemplate;
+
+    public EvidenceStorageService(GridFsTemplate gridFsTemplate) {
+        this.gridFsTemplate = gridFsTemplate;
+        log.info("[EvidenceStorageService] Initialised — using MongoDB GridFS for evidence storage");
     }
 
     /**
-     * Resolve the storage root directory.
-     *
-     * Uses EVIDENCE_STORAGE_DIR directly if set.
-     * Falls back to {java.io.tmpdir}/woodfurni/uploads (parent dirs created
-     * automatically by save() on first write).
-     *
-     * ⚠️  The path is NOT created here. Creation happens lazily in save() so
-     *     that startup never crashes — a missing directory just means nobody
-     *     has uploaded a file yet.
-     */
-    private Path resolveBaseDir() {
-        String env = System.getenv("EVIDENCE_STORAGE_DIR");
-        if (env != null && !env.isBlank()) {
-            return Paths.get(env.trim());
-        }
-        return Paths.get(System.getProperty("java.io.tmpdir"), "woodfurni", "uploads");
-    }
-
-    /**
-     * Validate and persist the uploaded file.
+     * Validate and persist the uploaded file to GridFS.
      *
      * @throws IllegalArgumentException with a user-friendly message on any
-     *         validation or I/O failure (caught by the controller → 400 response).
+     *         validation or I/O failure.
      */
-    public StoredFile save(MultipartFile file) {
+    public StoredFileWithId save(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("File minh chứng là bắt buộc");
         }
@@ -131,77 +96,110 @@ public class EvidenceStorageService {
                     ct, original);
         }
 
-        // Subdirectory: /yyyy-MM/  (e.g. /2026-09/)
         String monthDir = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
-        Path targetDir = baseDir.resolve(monthDir);
-
-        // Try to create the directory. If it fails, surface a clear error.
-        try {
-            Files.createDirectories(targetDir);
-        } catch (IOException e) {
-            String hint = System.getenv("EVIDENCE_STORAGE_DIR") != null
-                    ? " Kiểm tra EVIDENCE_STORAGE_DIR đã được mount đúng chưa và thư mục có quyền ghi."
-                    : "";
-            throw new IllegalArgumentException(
-                    "Không thể tạo thư mục lưu trữ '" + targetDir + "'." + hint
-                    + " Lỗi: " + e.getMessage(), e);
-        }
-
         String storedName = UUID.randomUUID().toString().replace("-", "") + ext;
-        Path target = targetDir.resolve(storedName);
 
+        // Store with metadata for future introspection (e.g. cleanup by monthDir).
+        org.springframework.data.mongodb.core.query.Query storeQuery =
+                org.springframework.data.mongodb.gridfs.GridFsQuery.query(
+                        org.springframework.data.mongodb.core.query.Criteria.where("monthDir").is(monthDir)
+                                .and("storedName").is(storedName)
+                );
+
+        ObjectId fileId;
         try {
-            Files.copy(file.getInputStream(), target, StandardCopyOption.REPLACE_EXISTING);
+            fileId = gridFsTemplate.store(
+                    file.getInputStream(),
+                    storedName,
+                    ct != null ? ct : "application/octet-stream",
+                    new org.bson.Document()
+                            .append("monthDir", monthDir)
+                            .append("originalName", original)
+                            .append("storedName", storedName)
+            );
         } catch (IOException e) {
             throw new IllegalArgumentException(
                     "Không thể lưu file minh chứng '" + original + "': " + e.getMessage(), e);
         }
 
-        // Public URL = context-path + /inventory/evidence/yyyy-MM/uuid.xlsx
-        // Render the URL as a full path including the Spring context-path (/api/v1)
-        // so the frontend never has to guess where the rewrite boundary is
-        // (avoids 403 when the frontend strips /v1 incorrectly).
-        String publicUrl = "/api/v1/inventory/evidence/" + monthDir + "/" + storedName;
-        log.info("[EvidenceStorageService] Saved '{}' → {} ({} bytes) as {}",
-                original, target, file.getSize(), storedName);
+        // Public URL = context-path + /inventory/evidence/{gridFsId}
+        // Frontend never has to guess — id is opaque so a future move to S3/Cloudinary
+        // can keep the same URL shape with a different resolver.
+        String publicUrl = "/api/v1/inventory/evidence/" + fileId.toHexString();
+        log.info("[EvidenceStorageService] Saved '{}' → GridFS id={} ({} bytes) as {}",
+                original, fileId.toHexString(), file.getSize(), storedName);
 
-        return new StoredFile(original, storedName, publicUrl, file.getSize());
+        StoredFile sf = new StoredFile(original, storedName, publicUrl, file.getSize());
+        return new StoredFileWithId(fileId.toHexString(), sf);
     }
 
     /**
-     * Resolve a public URL back to an absolute Path, or null if the file
-     * does not exist or the URL tries to escape baseDir.
+     * Resolve a public URL back to a GridFsResource so the controller can stream it.
+     *
+     * @param publicPath  URL like "/api/v1/inventory/evidence/{gridFsId}"
+     * @return GridFsResource or null if not found / URL malformed.
      */
-    public Path resolve(String publicPath) {
+    public GridFsResource resolve(String publicPath) {
         if (publicPath == null) return null;
 
-        // Strip the API prefix to get the relative path within baseDir.
         int idx = publicPath.indexOf("/inventory/evidence/");
         if (idx < 0) {
             log.warn("[EvidenceStorageService] Unrecognised evidence publicPath format: {}", publicPath);
             return null;
         }
-        String suffix = publicPath.substring(idx + "/inventory/evidence/".length());
-        Path candidate = baseDir.resolve(suffix).normalize();
+        String idStr = publicPath.substring(idx + "/inventory/evidence/".length());
+        if (idStr.isBlank()) return null;
 
-        // Defend against path traversal: ensure the resolved path is still
-        // under baseDir after normalisation.
-        if (!candidate.startsWith(baseDir)) {
-            log.warn("[EvidenceStorageService] Path traversal attempt blocked: {}", publicPath);
+        ObjectId fileId;
+        try {
+            fileId = new ObjectId(idStr);
+        } catch (IllegalArgumentException ex) {
+            log.warn("[EvidenceStorageService] Evidence URL has invalid GridFS id: {}", idStr);
             return null;
         }
 
-        if (!Files.exists(candidate)) {
-            // Log at WARN so Render Dashboard → Logs shows the cause clearly.
-            // baseDir is the ephemeral /tmp dir by default → file is lost on
-            // every deploy until EVIDENCE_STORAGE_DIR is configured.
-            log.warn("[EvidenceStorageService] Evidence file missing on disk: path={} baseDir={} " +
-                    "(if baseDir is /tmp, the file was lost after a Render deploy — " +
-                    "configure EVIDENCE_STORAGE_DIR to point at a persistent disk)",
-                    candidate, baseDir.toAbsolutePath());
+        GridFSFile file = gridFsTemplate.findOne(
+                new org.springframework.data.mongodb.core.query.Query(
+                        org.springframework.data.mongodb.core.query.Criteria.where("_id").is(fileId)
+                )
+        );
+
+        if (file == null) {
+            log.warn("[EvidenceStorageService] Evidence file not found in GridFS for id={}", idStr);
             return null;
         }
-        return candidate;
+
+        GridFsResource resource = gridFsTemplate.getResource(file);
+        if (!resource.exists()) {
+            log.warn("[EvidenceStorageService] GridFS resource does not exist for id={}", idStr);
+            return null;
+        }
+        return resource;
+    }
+
+    /**
+     * Look up the original (user-friendly) filename stored in GridFS metadata
+     * for a given gridFsId. Falls back to null if not found so caller can use
+     * the URL filename as a default.
+     */
+    public String findOriginalNameById(String gridFsId) {
+        if (gridFsId == null || gridFsId.isBlank()) return null;
+        ObjectId fileId;
+        try {
+            fileId = new ObjectId(gridFsId);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+        GridFSFile file = gridFsTemplate.findOne(
+                new org.springframework.data.mongodb.core.query.Query(
+                        org.springframework.data.mongodb.core.query.Criteria.where("_id").is(fileId)
+                )
+        );
+        if (file == null) return null;
+        org.bson.Document meta = file.getMetadata();
+        if (meta == null) return null;
+        Object name = meta.get("originalName");
+        return name instanceof String s && !s.isBlank() ? s : null;
     }
 
     private static String extractExtension(String name) {

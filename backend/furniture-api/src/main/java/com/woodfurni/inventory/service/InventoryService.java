@@ -391,7 +391,7 @@ public class InventoryService {
         }
 
         int delta = request.getDelta();
-        EvidenceStorageService.StoredFile stored = evidenceStorageService.save(evidence);
+        EvidenceStorageService.StoredFileWithId stored = evidenceStorageService.save(evidence);
 
         Query query;
         Update update;
@@ -433,7 +433,7 @@ public class InventoryService {
                 : describeReason(request.getReasonCode());
         writeHistoryWithEvidence(result.getId(), productId, delta, previousOnHand, newOnHand,
                 actorName, actorUserId, reasonText,
-                request.getReasonCode().name(), "MANUAL_ADJUST", stored);
+                request.getReasonCode().name(), "MANUAL_ADJUST", stored.storedFile());
 
         maybeNotifyLowStock(result, previousOnHand);
         syncProductStatus(productId, newOnHand);

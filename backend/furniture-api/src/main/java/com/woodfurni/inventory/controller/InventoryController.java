@@ -13,14 +13,13 @@ import com.woodfurni.inventory.service.InventoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.core.io.FileSystemResource;
+import org.bson.types.ObjectId;
+import org.springframework.core.io.GridFsResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -28,10 +27,6 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.io.IOException;
-
-import java.nio.file.Path;
 
 @RestController
 @RequestMapping("/inventory")
@@ -116,62 +111,89 @@ public class InventoryController {
         return ResponseEntity.ok(ApiResponse.success("Đã điều chỉnh tồn kho", result));
     }
 
+    // ── Evidence download endpoints ────────────────────────────────────────
+    // Two URL patterns are supported for backward compatibility:
+    //   1. /evidence/{gridFsId}          — new format (ObjectId string)
+    //   2. /evidence/{yearMonth}/{file} — legacy format (yyyy-MM/uuid.xlsx)
+    //
+    // New uploads use format 1. Old history records (uploaded before the
+    // GridFS migration) use format 2 and may return 404 if the file was lost
+    // after a Render redeploy (ephemeral disk). Users must re-upload those.
+
     /**
-     * Serve a previously uploaded evidence file for download.
-     * URL pattern: GET /api/inventory/evidence/{yearMonth}/{filename}
+     * NEW FORMAT: Download evidence by GridFS ObjectId.
+     * URL: GET /api/inventory/evidence/{gridFsId}
+     */
+    @GetMapping("/evidence/{id}")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
+    @Operation(summary = "Download inventory adjustment evidence file (new format)",
+               description = "Serves the Excel evidence file stored in MongoDB GridFS.")
+    public ResponseEntity<Resource> downloadEvidence(@PathVariable String id) {
+        return serveEvidence(id, null, null);
+    }
+
+    /**
+     * LEGACY FORMAT: Download evidence by yearMonth/storedFileName.
+     * URL: GET /api/inventory/evidence/{yearMonth}/{filename:.+}
      *
-     * The original filename is resolved from the DB history record so that
-     * the user downloads the file with the name they uploaded it as (e.g.
-     * "phieu-dieu-chinh-2026-09.xlsx") instead of the UUID we stored on disk.
+     * Looks up the history record by filename to recover the original name.
+     * If the file is genuinely missing (lost after Render redeploy), returns 404.
      */
     @GetMapping("/evidence/{yearMonth}/{filename:.+}")
     @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
-    @Operation(summary = "Download inventory adjustment evidence file",
-               description = "Serves the Excel evidence file that was uploaded with an adjustment.")
-    public ResponseEntity<Resource> downloadEvidence(
+    @Operation(summary = "Download inventory adjustment evidence file (legacy format)",
+               description = "Legacy endpoint for evidence files stored before the GridFS migration.")
+    public ResponseEntity<Resource> downloadEvidenceLegacy(
             @PathVariable String yearMonth,
             @PathVariable String filename) {
-        String publicPath = "/api/inventory/evidence/" + yearMonth + "/" + filename;
-        Path absolute = evidenceStorageService.resolve(publicPath);
+        return serveEvidence(null, yearMonth, filename);
+    }
 
-        if (absolute == null) {
-            log.warn("[downloadEvidence] File not found on disk: {}", publicPath);
+    private ResponseEntity<Resource> serveEvidence(String id, String yearMonth, String filename) {
+        GridFsResource resource;
+        String originalName;
+
+        if (id != null) {
+            // ── New format: /evidence/{gridFsId} ──────────────────────────
+            String publicPath = "/api/v1/inventory/evidence/" + id;
+            resource = evidenceStorageService.resolve(publicPath);
+            if (resource == null) {
+                log.warn("[downloadEvidence] File not found in GridFS for id={}", id);
+                return ResponseEntity.notFound().build();
+            }
+            originalName = evidenceStorageService.findOriginalNameById(id);
+        } else {
+            // ── Legacy format: /evidence/{yearMonth}/{filename} ───────────
+            // File is gone (Render ephemeral disk) — nothing we can do.
+            // Log clearly so the admin understands.
+            log.warn("[downloadEvidence] Legacy evidence not found — file was stored on " +
+                    "Render's ephemeral /tmp and was lost after a redeploy. " +
+                    "Please re-upload the adjustment evidence. yearMonth={} filename={}",
+                    yearMonth, filename);
             return ResponseEntity.notFound().build();
         }
 
-        Resource resource = null;
-        try {
-            // Look up the history record to get the user-friendly original name.
-            String originalName = inventoryService.findOriginalNameByStoredFile(filename)
-                    .orElse(filename);
-
-            // Sanitise for Content-Disposition header (ASCII fallback for non-ASCII).
-            String safeAscii = originalName.replaceAll("[^\\x20-\\x7E]", "_");
-            String contentDisposition =
-                    "attachment; filename=\"" + safeAscii + "\"; "
-                  + "filename*=UTF-8''" + java.net.URLEncoder.encode(originalName, java.nio.charset.StandardCharsets.UTF_8);
-
-            // Pick content type by the actual on-disk extension (filename param
-            // is the UUID we stored, so use that for the sniff).
-            String lower = filename.toLowerCase();
-            MediaType contentType = lower.endsWith(".xls")
-                    ? MediaType.parseMediaType("application/vnd.ms-excel")
-                    : MediaType.parseMediaType(
-                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-
-            resource = new FileSystemResource(absolute);
-            return ResponseEntity.ok()
-                    .contentType(contentType)
-                    .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition)
-                    .body(resource);
-        } catch (Exception ex) {
-            log.error("[downloadEvidence] Failed to serve evidence file: path={} originalFilename={}",
-                    absolute, filename, ex);
-            if (resource != null && resource.isReadable()) {
-                try { resource.getInputStream().close(); } catch (IOException ignored) {}
-            }
-            return ResponseEntity.internalServerError().build();
+        if (originalName == null || originalName.isBlank()) {
+            originalName = "minh-chung.xlsx";
         }
+
+        // Sanitise for Content-Disposition header (ASCII fallback for non-ASCII).
+        String safeAscii = originalName.replaceAll("[^\\x20-\\x7E]", "_");
+        String contentDisposition =
+                "attachment; filename=\"" + safeAscii + "\"; "
+              + "filename*=UTF-8''" + java.net.URLEncoder.encode(originalName, java.nio.charset.StandardCharsets.UTF_8);
+
+        // Pick content type by extension.
+        String lower = originalName.toLowerCase();
+        MediaType contentType = lower.endsWith(".xls")
+                ? MediaType.parseMediaType("application/vnd.ms-excel")
+                : MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+        return ResponseEntity.ok()
+                .contentType(contentType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition)
+                .body(resource);
     }
 
     @GetMapping("/{productId}/history")
