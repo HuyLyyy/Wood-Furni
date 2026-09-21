@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
@@ -48,6 +49,15 @@ public class ReportingService {
     private static final String COL_USERS = "users";
     private static final String COL_INVENTORIES = "inventories";
     private static final String COL_PRODUCTS = "products";
+
+    /**
+     * Reporting timezone. We bucket revenue by the calendar day in
+     * Asia/Ho_Chi_Minh (UTC+7) so the chart matches what the admin sees on
+     * their wall clock. Without this, an order delivered at 02:00 ICT on the
+     * 21st would land in the UTC 20th bucket and the bar for the 21st would
+     * be missing revenue.
+     */
+    private static final ZoneId ICT = ZoneId.of("Asia/Ho_Chi_Minh");
     private static final String COL_CATEGORIES = "categories";
 
     // ============================================================
@@ -58,10 +68,13 @@ public class ReportingService {
      * Combines four independent aggregations — all executed on the DB side.
      */
     public DashboardSummaryResponse getDashboardSummary() {
-        Instant startOfDay = LocalDate.now(ZoneOffset.UTC)
-                .atStartOfDay(ZoneOffset.UTC).toInstant();
+        // Use ICT (UTC+7) so the "today" window matches what the admin sees on
+        // their wall clock. With UTC, an order delivered at 02:00 ICT on the
+        // 21st would fall outside the UTC 21st window.
+        Instant startOfDay = LocalDate.now(ICT).atStartOfDay(ICT).toInstant();
+        Instant endOfDay = startOfDay.plus(1, ChronoUnit.DAYS);
 
-        BigDecimal revenueToday = aggregateRevenueToday(startOfDay);
+        BigDecimal revenueToday = aggregateRevenueToday(startOfDay, endOfDay);
         Long ordersToday = aggregateOrdersToday(startOfDay);
         Long newCustomersToday = aggregateNewCustomersToday(startOfDay);
         Long lowStockCount = aggregateLowStockCount();
@@ -75,34 +88,23 @@ public class ReportingService {
     }
 
     /**
-     * Aggregation: sum(totalAmount) of orders with paymentStatus=PAID created today.
+     * Aggregation: sum(totalAmount) of revenue-eligible orders whose revenue
+     * recognition event (statusHistory entry with status DELIVERED/PAID/SUCCESS)
+     * falls within the requested window. Window is interpreted in ICT (UTC+7).
      *
      * Pipeline:
-     *   $match  → filter by date range AND paymentStatus=PAID
-     *   $group  → sum totalAmount into revenue
+     *   $match    revenue-eligible orders with at least one recognition event
+     *             in [start, end)
+     *   $unwind   explode statusHistory
+     *   $match    keep only entries with status in {DELIVERED, PAID, SUCCESS}
+     *   $sort     most recent first
+     *   $group    one revenueAt per order (latest recognition event)
+     *   $match    restrict revenueAt back into the [start, end) window
+     *   $group    sum totalAmount into revenue
      */
-    private BigDecimal aggregateRevenueToday(Instant startOfDay) {
-        // Bucketed by event time: revenue counted on the day the order flipped
-        // to DELIVERED / PAID / SUCCESS — not the day it was created. This
-        // matches the daily chart logic and is what users expect from
-        // "Doanh thu hôm nay" (revenue realized today).
-        Instant endOfDay = startOfDay.plus(1, ChronoUnit.DAYS);
-
+    private BigDecimal aggregateRevenueToday(Instant start, Instant end) {
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        stages.add(Aggregation.match(
-                new org.springframework.data.mongodb.core.query.Criteria()
-                        .and("statusHistory.0").exists(true)
-                        .and("statusHistory.changedAt").gte(startOfDay).lt(endOfDay)
-                        .andOperator(
-                                new org.springframework.data.mongodb.core.query.Criteria()
-                                        .orOperator(
-                                                new org.springframework.data.mongodb.core.query.Criteria().and("status").is("DELIVERED"),
-                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("PAID"),
-                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("SUCCESS")
-                                        ),
-                                new org.springframework.data.mongodb.core.query.Criteria()
-                                        .and("paymentStatus").ne("REFUNDED")
-                        )));
+        stages.add(Aggregation.match(revenueEventCriteria(start, end)));
         stages.add(ctx -> new Document("$unwind", "$statusHistory"));
         stages.add(ctx -> new Document("$match",
                 new Document("$expr",
@@ -116,8 +118,8 @@ public class ReportingService {
                         .append("totalAmount", new Document("$first", "$totalAmount"))));
         stages.add(ctx -> new Document("$match",
                 new Document("revenueAt",
-                        new Document("$gte", startOfDay)
-                                .append("$lt", endOfDay))));
+                        new Document("$gte", start)
+                                .append("$lt", end))));
         stages.add(ctx -> new Document("$group",
                 new Document("_id", null)
                         .append("revenue",
@@ -136,76 +138,31 @@ public class ReportingService {
     }
 
     /**
-     * Builds the $match Criteria for revenue calculations.
+     * Builds the initial $match criteria shared by all revenue aggregations.
+     * Requires:
+     *   - statusHistory.0 exists
+     *   - at least one revenue-recognition event (statusHistory.changedAt) in [start, end)
+     *   - order-level status/paymentStatus qualifies (DELIVERED OR PAID/SUCCESS)
+     *   - paymentStatus != REFUNDED
      *
-     * Revenue counts orders where ALL of these hold:
-     *   - paymentStatus != REFUNDED (refunds never count as revenue)
-     *   - AND at least ONE of:
-     *       (a) status = DELIVERED          — COD confirmed delivered
-     *       (b) paymentStatus = PAID        — legacy sandbox paid
-     *       (c) paymentStatus = SUCCESS     — gateway-aligned paid on Order
-     *
-     * @param start  lower bound Instant (inclusive), or null to skip
-     * @param end    upper bound Instant (exclusive), or null to skip
-     * @param year   year for date-bucket grouping, or null
-     * @param month  month (1-12) for date-bucket grouping, or null
+     * The window is interpreted in the server's reporting timezone (ICT).
      */
-    private org.springframework.data.mongodb.core.query.Criteria revenueCriteria(
-            Instant start, Instant end, Integer year, Integer month) {
-
-        var b = new org.springframework.data.mongodb.core.query.Criteria();
-
-        // Exclude REFUNDED orders from revenue (already excluded by default, but
-        // explicit is clearer and guards against future schema changes).
-        var statusCondition = new org.springframework.data.mongodb.core.query.Criteria()
-                .and("paymentStatus").ne("REFUNDED");
-
-        // Include DELIVERED (COD) OR PAID/SUCCESS (prepaid).
-        // Order.status is a String enum (DELIVERED, CONFIRMED, ...).
-        // PaymentStatus values are PAID / SUCCESS (gateway-aligned) stored on Order.paymentStatus.
-        var revenueCondition = new org.springframework.data.mongodb.core.query.Criteria().orOperator(
-                new org.springframework.data.mongodb.core.query.Criteria().and("status").is("DELIVERED"),
-                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("PAID"),
-                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("SUCCESS")
-        );
-
-        if (start != null) b = b.and("createdAt").gte(start);
-        if (end != null)   b = b.and("createdAt").lt(end);
-
-        // For year/month-bucketed reports, also match the year/month on createdAt.
-        // We do this via $expr to avoid needing a separate index.
-        if (year != null && month != null) {
-            var dateCondition = new org.springframework.data.mongodb.core.query.Criteria()
-                    .andOperator(
-                            new org.springframework.data.mongodb.core.query.Criteria()
-                                    .and("createdAt").gte(java.time.LocalDate.of(year, month, 1)
-                                            .atStartOfDay(java.time.ZoneOffset.UTC).toInstant()),
-                            new org.springframework.data.mongodb.core.query.Criteria()
-                                    .and("createdAt").lt(java.time.LocalDate.of(year, month, 1)
-                                            .plusMonths(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant())
-                    );
-            return new org.springframework.data.mongodb.core.query.Criteria().andOperator(
-                    statusCondition, revenueCondition, dateCondition);
-        }
-
-        return new org.springframework.data.mongodb.core.query.Criteria().andOperator(
-                statusCondition, revenueCondition);
-    }
-
-    /**
-     * Overload for callers that only need start/end bounds (no year/month bucket).
-     */
-    private org.springframework.data.mongodb.core.query.Criteria revenueCriteria(
+    private org.springframework.data.mongodb.core.query.Criteria revenueEventCriteria(
             Instant start, Instant end) {
-        return revenueCriteria(start, end, null, null);
-    }
 
-    /**
-     * Overload for callers that need start only (end = null, no bucket).
-     */
-    private org.springframework.data.mongodb.core.query.Criteria revenueCriteria(
-            Instant start) {
-        return revenueCriteria(start, null, null, null);
+        return new org.springframework.data.mongodb.core.query.Criteria()
+                .and("statusHistory.0").exists(true)
+                .and("statusHistory.changedAt").gte(start).lt(end)
+                .andOperator(
+                        new org.springframework.data.mongodb.core.query.Criteria()
+                                .orOperator(
+                                        new org.springframework.data.mongodb.core.query.Criteria().and("status").is("DELIVERED"),
+                                        new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("PAID"),
+                                        new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("SUCCESS")
+                                ),
+                        new org.springframework.data.mongodb.core.query.Criteria()
+                                .and("paymentStatus").ne("REFUNDED")
+                );
     }
 
     /**
@@ -297,37 +254,23 @@ public class ReportingService {
      * Then fills in missing months with zero revenue on the Java side.
      */
     public List<MonthlyRevenueResponse> getMonthlyRevenue() {
-        Instant twelveMonthsAgo = LocalDate.now(ZoneOffset.UTC)
+        // ICT (UTC+7) bounds so the bucket key matches what the admin sees.
+        Instant twelveMonthsAgo = LocalDate.now(ICT)
                 .minusMonths(11).withDayOfMonth(1)
-                .atStartOfDay(ZoneOffset.UTC).toInstant();
+                .atStartOfDay(ICT).toInstant();
 
-        // Pipeline (revenue bucketed by EVENT TIME, not createdAt):
+        // Pipeline (revenue bucketed by EVENT TIME in ICT):
         //   $match    → revenue-eligible orders touched in last 12 months
         //   $unwind   → explode statusHistory
         //   $match    → keep only the entry where status flipped to
         //               DELIVERED / PAID / SUCCESS (the moment revenue was recognized)
         //   $sort     → most recent event first
         //   $group    → one revenueAt per order (the latest recognition event)
-        //   $group    → bucket by yyyy-MM of revenueAt, sum totalAmount
+        //   $group    → bucket by yyyy-MM of revenueAt in ICT, sum totalAmount
         //   $project  → reshape
         //   $sort     → by month ascending
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        // Bound the recognition event into the same 12-month window as before so
-        // older orders that get paid later still show up in the chart.
-        stages.add(Aggregation.match(
-                new org.springframework.data.mongodb.core.query.Criteria()
-                        .and("statusHistory.0").exists(true)
-                        .and("statusHistory.changedAt").gte(twelveMonthsAgo)
-                        .andOperator(
-                                new org.springframework.data.mongodb.core.query.Criteria()
-                                        .orOperator(
-                                                new org.springframework.data.mongodb.core.query.Criteria().and("status").is("DELIVERED"),
-                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("PAID"),
-                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("SUCCESS")
-                                        ),
-                                new org.springframework.data.mongodb.core.query.Criteria()
-                                        .and("paymentStatus").ne("REFUNDED")
-                        )));
+        stages.add(Aggregation.match(revenueEventCriteria(twelveMonthsAgo, Instant.now().plus(1, ChronoUnit.DAYS))));
         stages.add(ctx -> new Document("$unwind", "$statusHistory"));
         stages.add(ctx -> new Document("$match",
                 new Document("$expr",
@@ -344,7 +287,7 @@ public class ReportingService {
                         new Document("$dateToString",
                                 new Document("format", "%Y-%m")
                                         .append("date", "$revenueAt")
-                                        .append("timezone", "UTC")))
+                                        .append("timezone", "Asia/Ho_Chi_Minh")))
                         .append("revenue",
                                 new Document("$sum", "$totalAmount"))));
         stages.add(ctx -> new Document("$project",
@@ -366,7 +309,7 @@ public class ReportingService {
         // Fill in 12 months, including those with zero revenue
         List<MonthlyRevenueResponse> response = new ArrayList<>();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM");
-        LocalDate startMonth = LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1);
+        LocalDate startMonth = LocalDate.now(ICT).withDayOfMonth(1);
 
         for (int i = 11; i >= 0; i--) {
             LocalDate month = startMonth.minusMonths(i);
@@ -402,30 +345,28 @@ public class ReportingService {
     public List<DailyRevenueResponse> getDailyRevenue(int year, int month) {
         // Defensive: clamp month/year to sane ranges so a bad input doesn't
         // crash the aggregation with a date-arithmetic error.
-        if (year < 2000 || year > 3000) year = LocalDate.now(ZoneOffset.UTC).getYear();
+        if (year < 2000 || year > 3000) year = LocalDate.now(ICT).getYear();
         if (month < 1) month = 1;
         if (month > 12) month = 12;
 
+        // Use ICT (UTC+7) so the day buckets match what the admin sees.
         LocalDate firstDay = LocalDate.of(year, month, 1);
         LocalDate nextMonthFirstDay = firstDay.plusMonths(1);
-        Instant startInstant = firstDay.atStartOfDay(ZoneOffset.UTC).toInstant();
-        Instant endInstant = nextMonthFirstDay.atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant startInstant = firstDay.atStartOfDay(ICT).toInstant();
+        Instant endInstant = nextMonthFirstDay.atStartOfDay(ICT).toInstant();
 
+        // Pipeline (revenue bucketed by EVENT TIME in ICT):
+        //   $match    → orders with at least one revenue recognition event in [start, end)
+        //   $unwind   → explode statusHistory
+        //   $match    → keep entries where status flipped to DELIVERED/PAID/SUCCESS
+        //   $sort     → most recent first
+        //   $group    → one revenueAt per order (latest recognition event)
+        //   $match    → restrict revenueAt to the requested month (in ICT)
+        //   $group    → bucket by yyyy-MM-dd of revenueAt in ICT, sum totalAmount
+        //   $project  → rename _id → date
+        //   $sort     → by date ascending
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        stages.add(Aggregation.match(
-                new org.springframework.data.mongodb.core.query.Criteria()
-                        .and("statusHistory.0").exists(true)
-                        .and("statusHistory.changedAt").gte(startInstant).lt(endInstant)
-                        .andOperator(
-                                new org.springframework.data.mongodb.core.query.Criteria()
-                                        .orOperator(
-                                                new org.springframework.data.mongodb.core.query.Criteria().and("status").is("DELIVERED"),
-                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("PAID"),
-                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("SUCCESS")
-                                        ),
-                                new org.springframework.data.mongodb.core.query.Criteria()
-                                        .and("paymentStatus").ne("REFUNDED")
-                        )));
+        stages.add(Aggregation.match(revenueEventCriteria(startInstant, endInstant)));
         stages.add(ctx -> new Document("$unwind", "$statusHistory"));
         stages.add(ctx -> new Document("$match",
                 new Document("$expr",
@@ -446,7 +387,7 @@ public class ReportingService {
                         new Document("$dateToString",
                                 new Document("format", "%Y-%m-%d")
                                         .append("date", "$revenueAt")
-                                        .append("timezone", "UTC")))
+                                        .append("timezone", "Asia/Ho_Chi_Minh")))
                         .append("revenue",
                                 new Document("$sum", "$totalAmount"))));
         stages.add(ctx -> new Document("$project",
