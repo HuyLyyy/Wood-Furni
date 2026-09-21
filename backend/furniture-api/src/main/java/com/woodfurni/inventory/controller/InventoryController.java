@@ -7,17 +7,28 @@ import com.woodfurni.common.PageResponse;
 import com.woodfurni.inventory.dto.InventoryAdjustRequest;
 import com.woodfurni.inventory.dto.InventoryHistoryResponse;
 import com.woodfurni.inventory.dto.InventoryResponse;
+import com.woodfurni.inventory.enums.AdjustmentReason;
+import com.woodfurni.inventory.service.EvidenceStorageService;
 import com.woodfurni.inventory.service.InventoryService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.nio.file.Path;
 
 @RestController
 @RequestMapping("/inventory")
@@ -28,6 +39,7 @@ public class InventoryController {
 
     private final InventoryService inventoryService;
     private final UserRepository userRepository;
+    private final EvidenceStorageService evidenceStorageService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
@@ -64,16 +76,68 @@ public class InventoryController {
     @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
     @Operation(summary = "Manual stock adjustment",
                description = "Adjust stock quantity (positive delta = restock, negative = deduction/damage). " +
-                       "Prevents quantityOnHand from going negative. Writes an audit entry.")
+                       "Prevents quantityOnHand from going negative. Writes an audit entry with reason code and Excel evidence. " +
+                       "Requires multipart/form-data with: reasonCode, delta, note (optional), evidence (REQUIRED .xlsx/.xls ≤10MB).")
     public ResponseEntity<ApiResponse<InventoryResponse>> adjust(
             @PathVariable String productId,
-            @Valid @RequestBody InventoryAdjustRequest request,
+            @RequestParam("reasonCode") String reasonCode,
+            @RequestParam("delta") Integer delta,
+            @RequestParam(value = "note", required = false) String note,
+            @RequestParam("evidence") MultipartFile evidence,
+            @RequestParam(value = "keepReason", required = false) String keepReason,
             @AuthenticationPrincipal UserDetails userDetails) {
+
+        if (reasonCode == null || reasonCode.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("reasonCode là bắt buộc. Các giá trị hợp lệ: " +
+                            java.util.Arrays.toString(AdjustmentReason.values())));
+        }
+        AdjustmentReason reason = AdjustmentReason.fromCode(reasonCode);
+        if (reason == null) {
+            return ResponseEntity.badRequest()
+                    .body(ApiResponse.error("Giá trị reasonCode không hợp lệ. Các giá trị hợp lệ: " +
+                            java.util.Arrays.toString(AdjustmentReason.values())));
+        }
+
+        InventoryAdjustRequest request = InventoryAdjustRequest.builder()
+                .reasonCode(reason)
+                .delta(delta)
+                .note(note)
+                .build();
+
         String actorName = resolveActorName(userDetails);
         String actorUserId = userDetails != null ? userDetails.getUsername() : "unknown";
         InventoryResponse result = inventoryService.adjust(
-                productId, request.getDelta(), request.getReason(), actorName, actorUserId);
+                productId, request, evidence, actorName, actorUserId);
         return ResponseEntity.ok(ApiResponse.success("Đã điều chỉnh tồn kho", result));
+    }
+
+    /**
+     * Serve a previously uploaded evidence file for download.
+     * URL pattern: GET /api/inventory/evidence/{yearMonth}/{filename}
+     */
+    @GetMapping("/evidence/{yearMonth}/{filename:.+}")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
+    @Operation(summary = "Download inventory adjustment evidence file",
+               description = "Serves the Excel evidence file that was uploaded with an adjustment.")
+    public ResponseEntity<Resource> downloadEvidence(
+            @PathVariable String yearMonth,
+            @PathVariable String filename) {
+        String publicPath = "/api/inventory/evidence/" + yearMonth + "/" + filename;
+        Path absolute = evidenceStorageService.resolve(publicPath);
+        if (absolute == null) {
+            return ResponseEntity.notFound().build();
+        }
+        Resource resource = new FileSystemResource(absolute);
+        String originalName = filename; // the filename stored on disk; we could look it up via a DB record if needed
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(
+                        filename.toLowerCase().endsWith(".xlsx")
+                                ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                : "application/vnd.ms-excel"))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"" + originalName + "\"")
+                .body(resource);
     }
 
     @GetMapping("/{productId}/history")

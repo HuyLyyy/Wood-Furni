@@ -7,6 +7,7 @@ import com.woodfurni.common.EntityNotFoundException;
 import com.woodfurni.inventory.dto.InventoryAdjustRequest;
 import com.woodfurni.inventory.dto.InventoryHistoryResponse;
 import com.woodfurni.inventory.dto.InventoryResponse;
+import com.woodfurni.inventory.enums.AdjustmentReason;
 import com.woodfurni.inventory.exception.InsufficientStockException;
 import com.woodfurni.inventory.model.Inventory;
 import com.woodfurni.inventory.model.InventoryHistory;
@@ -24,6 +25,7 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
 import java.util.List;
@@ -53,6 +55,7 @@ public class InventoryService {
     private final ProductRepository productRepository;
     private final MongoTemplate mongoTemplate;
     private final NotificationClient notificationClient;
+    private final EvidenceStorageService evidenceStorageService;
 
     /**
      * Resolve a product's display name. Best effort — returns null on miss so
@@ -345,21 +348,51 @@ public class InventoryService {
      * Writes an audit entry to the inventory history.
      *
      * @param productId target product
-     * @param delta positive for restock, negative for deduction/damage
      * @param reason documentation of why adjustment was made
      * @param actorName human-readable label for the actor (e.g. "Lê Văn Kho - WAREHOUSE")
      * @param actorUserId ID of the user performing the action
      */
     public InventoryResponse adjust(String productId, int delta, String reason,
                                   String actorName, String actorUserId) {
-        if (delta == 0) {
+        InventoryAdjustRequest req = InventoryAdjustRequest.builder()
+                .delta(delta)
+                .reasonCode(AdjustmentReason.STOCKTAKE_VARIANCE) // legacy path — treat as chênh lệch
+                .note(reason)
+                .build();
+        return adjust(productId, req, null, actorName, actorUserId);
+    }
+
+    /**
+     * Adjust stock with full audit fields + Excel evidence.
+     *
+     * The reasonCode MUST be a valid {@link AdjustmentReason} enum constant
+     * (validated below). The {@code evidence} file is REQUIRED — callers
+     * (controller) must enforce null-check before invoking.
+     */
+    public InventoryResponse adjust(String productId,
+                                  InventoryAdjustRequest request,
+                                  MultipartFile evidence,
+                                  String actorName,
+                                  String actorUserId) {
+        if (request == null) {
+            throw new IllegalArgumentException("Request body is required");
+        }
+        if (request.getDelta() == null || request.getDelta() == 0) {
             throw new IllegalArgumentException("Delta cannot be zero");
+        }
+        if (request.getReasonCode() == null) {
+            throw new IllegalArgumentException("Reason code is required");
+        }
+        if (evidence == null || evidence.isEmpty()) {
+            throw new IllegalArgumentException("File minh chứng (.xlsx/.xls) là bắt buộc cho mọi điều chỉnh tồn kho");
         }
         if (productId == null || productId.isBlank()) {
             throw new EntityNotFoundException("Invalid productId: " + productId);
         }
 
-        // productId is stored as String in the Inventory document.
+        int delta = request.getDelta();
+        EvidenceStorageService.StoredFile stored = evidenceStorageService.save(evidence);
+
         Query query;
         Update update;
 
@@ -394,14 +427,33 @@ public class InventoryService {
         // findAndModify returns the PRE-modification document. Update in-memory.
         result.setQuantityOnHand(newOnHand);
 
-        // Write audit history.
-        writeHistory(result.getId(), productId, delta, previousOnHand, newOnHand,
-                actorName, actorUserId, reason, "MANUAL_ADJUST");
+        // Write audit history — new schema with reasonCode + evidence.
+        String reasonText = request.getNote() != null && !request.getNote().isBlank()
+                ? request.getNote()
+                : describeReason(request.getReasonCode());
+        writeHistoryWithEvidence(result.getId(), productId, delta, previousOnHand, newOnHand,
+                actorName, actorUserId, reasonText,
+                request.getReasonCode().name(), "MANUAL_ADJUST", stored);
 
         maybeNotifyLowStock(result, previousOnHand);
         syncProductStatus(productId, newOnHand);
 
         return toResponse(result, null, null);
+    }
+
+    /**
+     * Human-readable label for a reason code (VN).
+     * Falls back to the raw enum name.
+     */
+    private static String describeReason(AdjustmentReason code) {
+        if (code == null) return null;
+        return switch (code) {
+            case DAMAGE_STOCK -> "Hàng hư hỏng tồn kho";
+            case LOSS_THEFT -> "Hàng mất mát";
+            case CUSTOMER_RETURN -> "Hàng trả lại từ khách";
+            case STOCKTAKE_VARIANCE -> "Kiểm kê phát hiện chênh lệch";
+            case LIQUIDATION -> "Thanh lý hàng tồn kho";
+        };
     }
 
     private PageResponse<InventoryResponse> buildPageResponse(Page<Inventory> inventoryPage, Pageable pageable) {
@@ -508,6 +560,38 @@ public class InventoryService {
                 operationType, productId, delta, previousQty, newQty, actorName);
     }
 
+    /**
+     * Write a history entry that also captures the controlled-vocabulary
+     * reason code AND a piece of evidence (Excel file).
+     */
+    public void writeHistoryWithEvidence(String inventoryId, String productId, int delta,
+                                         int previousQty, int newQty,
+                                         String actorName, String actorUserId,
+                                         String reason, String reasonCode, String operationType,
+                                         EvidenceStorageService.StoredFile evidence) {
+        InventoryHistory entry = InventoryHistory.builder()
+                .inventoryId(inventoryId)
+                .productId(productId)
+                .delta(delta)
+                .previousQuantity(previousQty)
+                .newQuantity(newQty)
+                .actorName(actorName)
+                .actorUserId(actorUserId)
+                .reason(reason)
+                .reasonCode(reasonCode)
+                .evidenceOriginalName(evidence != null ? evidence.originalName() : null)
+                .evidenceFileName(evidence != null ? evidence.storedFileName() : null)
+                .evidenceUrl(evidence != null ? evidence.publicUrl() : null)
+                .evidenceSize(evidence != null ? evidence.size() : null)
+                .operationType(operationType)
+                .createdAt(Instant.now())
+                .build();
+        historyRepository.save(entry);
+        log.info("[InventoryHistory] {} | productId={} | delta={} | {}→{} | reasonCode={} | file={} | actor={}",
+                operationType, productId, delta, previousQty, newQty, reasonCode,
+                evidence != null ? evidence.originalName() : null, actorName);
+    }
+
     private PageResponse<InventoryHistoryResponse> buildHistoryPageResponse(
             Page<InventoryHistory> historyPage, Pageable pageable) {
         List<InventoryHistoryResponse> items = historyPage.getContent().stream()
@@ -533,6 +617,11 @@ public class InventoryService {
                 .actorName(h.getActorName())
                 .actorUserId(h.getActorUserId())
                 .reason(h.getReason())
+                .reasonCode(h.getReasonCode())
+                .evidenceOriginalName(h.getEvidenceOriginalName())
+                .evidenceFileName(h.getEvidenceFileName())
+                .evidenceUrl(h.getEvidenceUrl())
+                .evidenceSize(h.getEvidenceSize())
                 .operationType(h.getOperationType())
                 .createdAt(h.getCreatedAt())
                 .build();

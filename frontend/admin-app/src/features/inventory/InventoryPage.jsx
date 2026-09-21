@@ -222,38 +222,84 @@ function DotsMenu({ product, onAdjust, onHistory, onDetail, canAdjust }) {
     );
 }
 
-// =============================================================
-// AdjustModal — unchanged logic, same UI
-// =============================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// Fixed adjustment reasons (matches backend AdjustmentReason enum).
+// Order: damage → loss → return → stocktake → liquidation (increasing severity).
+// ─────────────────────────────────────────────────────────────────────────────
+const ADJUSTMENT_REASONS = [
+    { code: 'DAMAGE_STOCK',       label: 'Hàng hư hỏng tồn kho',           hint: 'Mối mọt, ẩm mốc, vỡ khi lưu kho' },
+    { code: 'LOSS_THEFT',          label: 'Hàng mất mát',                  hint: 'Thất lạc, trộm trong kho / vận chuyển' },
+    { code: 'CUSTOMER_RETURN',     label: 'Hàng trả lại từ khách',          hint: 'Khách đổi / trả — nhập lại kho hoặc loại bỏ' },
+    { code: 'STOCKTAKE_VARIANCE',  label: 'Kiểm kê phát hiện chênh lệch',  hint: 'Sổ sách ≠ thực tế khi kiểm kê định kỳ' },
+    { code: 'LIQUIDATION',         label: 'Thanh lý hàng tồn kho',          hint: 'Hết mẫu, hết vòng đời sản phẩm, bán thanh lý' },
+];
+
+const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
+const ALLOWED_EXTENSIONS = ['.xlsx', '.xls'];
+
+function validateFile(file) {
+    if (!file) return 'Vui lòng chọn file minh chứng.';
+    if (file.size > MAX_FILE_BYTES) return 'File vượt quá 10 MB.';
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!ALLOWED_EXTENSIONS.includes(ext)) return 'Chỉ chấp nhận file Excel (.xlsx, .xls).';
+    return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AdjustModal
+// ─────────────────────────────────────────────────────────────────────────────
 
 function AdjustModal({ target, onClose, onDone }) {
     const [delta, setDelta] = useState('');
-    const [reason, setReason] = useState('');
+    const [selectedReason, setSelectedReason] = useState(''); // reasonCode string
+    const [note, setNote] = useState('');
+    const [evidence, setEvidence] = useState(null); // File | null
+    const [fileError, setFileError] = useState(null);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
+
+    // Drag-over highlight
+    const [dragging, setDragging] = useState(false);
+
+    const handleFileChange = (file) => {
+        if (!file) return;
+        const err = validateFile(file);
+        setFileError(err);
+        setEvidence(err ? null : file);
+    };
 
     const submit = async (e) => {
         e.preventDefault();
         setError(null);
+
         const n = parseInt(delta, 10);
         if (!Number.isFinite(n) || n === 0) {
-            setError('Delta phải là số nguyên khác 0');
+            setError('Delta phải là số nguyên khác 0.');
             return;
         }
-        if (!reason.trim()) {
-            setError('Lý do là bắt buộc');
+        if (!selectedReason) {
+            setError('Vui lòng chọn lý do điều chỉnh.');
             return;
         }
+        if (!evidence) {
+            setError('File minh chứng (.xlsx / .xls) là bắt buộc.');
+            return;
+        }
+
         setSaving(true);
         try {
-            await adminInventoryApi.adjust(target.productId, n, reason.trim());
+            await adminInventoryApi.adjust(target.productId, {
+                reasonCode: selectedReason,
+                delta: n,
+                note: note.trim() || undefined,
+            }, evidence);
             toast.success('Đã điều chỉnh tồn kho');
             onDone();
         } catch (err) {
+            // Extract backend error message
             const msg = err?.message
-                || (typeof err === 'string' ? err : null)
                 || (typeof err?.data?.message === 'string' ? err.data.message : null)
-                || 'Điều chỉnh thất bại';
+                || 'Điều chỉnh thất bại. Vui lòng thử lại.';
             setError(msg);
         } finally {
             setSaving(false);
@@ -264,9 +310,12 @@ function AdjustModal({ target, onClose, onDone }) {
         ? `Tồn kho mới ≈ ${formatNumber((target.quantityOnHand || 0) + parseInt(delta, 10))}`
         : null;
 
+    const selectedReasonObj = ADJUSTMENT_REASONS.find(r => r.code === selectedReason);
+
     return (
-        <Modal title="Điều chỉnh tồn kho" onClose={onClose} width={460}>
+        <Modal title="Điều chỉnh tồn kho" onClose={onClose} width={500}>
             <form onSubmit={submit} className="adjust-modal">
+                {/* Product info */}
                 <div className="adjust-modal__product">
                     <div className="adjust-modal__name">{target.productName}</div>
                     <div className="adjust-modal__sku">SKU: {target.productSku}</div>
@@ -276,7 +325,9 @@ function AdjustModal({ target, onClose, onDone }) {
                     </div>
                 </div>
 
-                <FormField label="Delta (số nguyên)" required htmlFor="adj-delta" hint="Dương = nhập kho, âm = xuất kho / hư hỏng">
+                {/* Delta */}
+                <FormField label="Thay đổi số lượng" required htmlFor="adj-delta"
+                    hint="Dương = nhập kho, Âm = xuất kho (hư hỏng, mất, thanh lý…)">
                     <input
                         id="adj-delta"
                         type="number"
@@ -288,22 +339,107 @@ function AdjustModal({ target, onClose, onDone }) {
                 </FormField>
                 {preview && <p className="adjust-modal__preview">{preview}</p>}
 
-                <FormField label="Lý do" required htmlFor="adj-reason">
+                {/* Reason checklist */}
+                <div className="adj-reason-section">
+                    <div className="adj-section-label">
+                        Lý do điều chỉnh <span className="required-star">*</span>
+                    </div>
+                    <div className="adj-reason-list" role="radiogroup" aria-label="Lý do điều chỉnh tồn kho">
+                        {ADJUSTMENT_REASONS.map((r) => (
+                            <label
+                                key={r.code}
+                                className={`adj-reason-item ${selectedReason === r.code ? 'is-selected' : ''}`}
+                                title={r.hint}
+                            >
+                                <input
+                                    type="radio"
+                                    name="adjust-reason"
+                                    value={r.code}
+                                    checked={selectedReason === r.code}
+                                    onChange={() => setSelectedReason(r.code)}
+                                    className="adj-reason-radio"
+                                />
+                                <div className="adj-reason-content">
+                                    <div className="adj-reason-label">{r.label}</div>
+                                    {selectedReason === r.code && (
+                                        <div className="adj-reason-hint">{r.hint}</div>
+                                    )}
+                                </div>
+                            </label>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Note (optional) */}
+                <FormField label="Ghi chú thêm" htmlFor="adj-note"
+                    hint="Tùy chọn — bổ sung thông tin nếu cần">
                     <textarea
-                        id="adj-reason"
-                        rows={3}
-                        value={reason}
-                        onChange={(e) => setReason(e.target.value)}
-                        placeholder="VD: Nhập kho đợt 2 / hàng hỏng trong vận chuyển"
+                        id="adj-note"
+                        rows={2}
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="VD: 5 cái bàn gỗ bị mối ăn trong kho tháng 6…"
+                        maxLength={500}
                     />
                 </FormField>
 
-                {error && <p className="adjust-modal__error">{error?.message || 'Điều chỉnh thất bại'}</p>}
+                {/* Evidence file upload */}
+                <div className="adj-evidence-section">
+                    <div className="adj-section-label">
+                        File minh chứng <span className="required-star">*</span>
+                        <span className="adj-section-sub">.xlsx, .xls · tối đa 10 MB</span>
+                    </div>
+
+                    {!evidence ? (
+                        <div
+                            className={`adj-drop-zone ${dragging ? 'is-dragging' : ''} ${fileError ? 'has-error' : ''}`}
+                            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                            onDragLeave={() => setDragging(false)}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                setDragging(false);
+                                handleFileChange(e.dataTransfer.files[0]);
+                            }}
+                            onClick={() => document.getElementById('adj-evidence-input').click()}
+                        >
+                            <div className="adj-drop-icon">📎</div>
+                            <div className="adj-drop-text">
+                                Kéo thả file Excel vào đây<br />
+                                hoặc <span className="adj-drop-link">bấm để chọn file</span>
+                            </div>
+                            <div className="adj-drop-sub">.xlsx · .xls · ≤ 10 MB</div>
+                        </div>
+                    ) : (
+                        <div className="adj-file-info">
+                            <div className="adj-file-icon">📊</div>
+                            <div className="adj-file-details">
+                                <div className="adj-file-name">{evidence.name}</div>
+                                <div className="adj-file-size">{(evidence.size / 1024).toFixed(1)} KB</div>
+                            </div>
+                            <button
+                                type="button"
+                                className="adj-file-remove"
+                                onClick={() => { setEvidence(null); setFileError(null); }}
+                                title="Gỡ file"
+                            >✕</button>
+                        </div>
+                    )}
+                    {fileError && <p className="adj-upload-error">{fileError}</p>}
+                    <input
+                        id="adj-evidence-input"
+                        type="file"
+                        accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                        style={{ display: 'none' }}
+                        onChange={(e) => handleFileChange(e.target.files[0])}
+                    />
+                </div>
+
+                {error && <p className="adjust-modal__error">{error}</p>}
 
                 <div className="adjust-modal__actions">
                     <button type="button" className="btn-cancel" onClick={onClose}>Huỷ</button>
                     <Button type="submit" variant="primary" size="md" loading={saving}>
-                        Xác nhận
+                        Xác nhận điều chỉnh
                     </Button>
                 </div>
             </form>
@@ -311,9 +447,27 @@ function AdjustModal({ target, onClose, onDone }) {
     );
 }
 
-// =============================================================
-// HistoryModal — inventory change audit trail
-// =============================================================
+// ─────────────────────────────────────────────────────────────────────────────
+// Reason code → display label (mirrors backend AdjustmentReason + describeReason).
+// ─────────────────────────────────────────────────────────────────────────────
+const REASON_LABELS = {
+    DAMAGE_STOCK:      { label: 'Hàng hư hỏng tồn kho',           icon: '⚠️' },
+    LOSS_THEFT:        { label: 'Hàng mất mát',                   icon: '🔎' },
+    CUSTOMER_RETURN:   { label: 'Hàng trả lại từ khách',           icon: '↩️' },
+    STOCKTAKE_VARIANCE:{ label: 'Kiểm kê phát hiện chênh lệch',  icon: '📋' },
+    LIQUIDATION:       { label: 'Thanh lý hàng tồn kho',          icon: '🗑️' },
+};
+
+function reasonChip(code) {
+    if (!code) return null;
+    const info = REASON_LABELS[code];
+    if (!info) return <span className="hist-reason-badge hist-reason-badge--other">{code}</span>;
+    return (
+        <span className="hist-reason-badge" title={code}>
+            {info.icon} {info.label}
+        </span>
+    );
+}
 
 function HistoryModal({ target, onClose, onDone }) {
     const [entries, setEntries] = useState([]);
@@ -383,6 +537,7 @@ function HistoryModal({ target, onClose, onDone }) {
                                     <th className="numeric">Trước</th>
                                     <th className="numeric">Sau</th>
                                     <th>Lý do</th>
+                                    <th>Minh chứng</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -396,7 +551,28 @@ function HistoryModal({ target, onClose, onDone }) {
                                         </td>
                                         <td className="numeric">{formatNumber(e.previousQuantity)}</td>
                                         <td className="numeric">{formatNumber(e.newQuantity)}</td>
-                                        <td className="hist-reason">{e.reason || (e.operationType !== 'MANUAL_ADJUST' ? '—' : '')}</td>
+                                        <td className="hist-reason">
+                                            {e.reasonCode && reasonChip(e.reasonCode)}
+                                            {e.reason && (
+                                                <span className="hist-note">{e.reason}</span>
+                                            )}
+                                            {!e.reasonCode && !e.reason && e.operationType === 'MANUAL_ADJUST' && '—'}
+                                            {!e.reasonCode && !e.reason && e.operationType !== 'MANUAL_ADJUST' && '—'}
+                                        </td>
+                                        <td className="hist-evidence">
+                                            {e.evidenceUrl ? (
+                                                <a
+                                                    href={e.evidenceUrl}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="hist-evidence-link"
+                                                    title={e.evidenceOriginalName}
+                                                    download={e.evidenceOriginalName}
+                                                >
+                                                    📥 Tải (.xlsx)
+                                                </a>
+                                            ) : '—'}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>

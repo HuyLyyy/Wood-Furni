@@ -64,6 +64,29 @@ public class InventoryHistory {
     /** Why the change was made. Only populated for manual adjustments. */
     private String reason;
 
+    /**
+     * Controlled-vocabulary reason for manual adjustments.
+     * One of the enum constants from AdjustmentReason. Null for system ops.
+     * Newer schema; legacy rows may have this null while {@link #reason}
+     * (legacy free-text) is still populated.
+     */
+    private String reasonCode;
+
+    /**
+     * Original (human-readable) filename of the uploaded evidence file.
+     * Null when none was attached.
+     */
+    private String evidenceOriginalName;
+
+    /** Server-side unique filename used on disk. Null when none. */
+    private String evidenceFileName;
+
+    /** Public URL to download the evidence file again. Null when none. */
+    private String evidenceUrl;
+
+    /** Size of the evidence file in bytes. Null when none. */
+    private Long evidenceSize;
+
     /** One of: MANUAL_ADJUST, RESERVE, RELEASE, COMMIT. */
     private String operationType;
 

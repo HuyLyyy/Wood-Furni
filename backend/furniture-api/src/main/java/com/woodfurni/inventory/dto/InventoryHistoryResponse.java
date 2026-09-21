@@ -35,6 +35,15 @@ public class InventoryHistoryResponse {
     /** Reason for manual adjustments. */
     private String reason;
 
+    /** Controlled-vocabulary reason code (AdjustmentReason.name()). */
+    private String reasonCode;
+
+    /** Excel evidence file. */
+    private String evidenceOriginalName;
+    private String evidenceFileName;
+    private String evidenceUrl;
+    private Long evidenceSize;
+
     /** MANUAL_ADJUST | RESERVE | RELEASE | COMMIT */
     private String operationType;
 
