@@ -186,7 +186,6 @@ public class ReportingController {
      * the per-day buckets). If this is empty but /_debug/revenue-pipeline-today
      * is not, the bucket-by-date stage is the culprit.
      */
-    private final com.woodfurni.reporting.service.ReportingService reportingService;
     @GetMapping("/_debug/revenue-pipeline-month")
     public ResponseEntity<ApiResponse<List<Document>>> debugRevenuePipelineMonth(
             @RequestParam(defaultValue = "2026") int year,
