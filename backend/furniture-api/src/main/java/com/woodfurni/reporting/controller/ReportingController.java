@@ -125,4 +125,58 @@ public class ReportingController {
         }
         return ResponseEntity.ok(ApiResponse.success(rows));
     }
+
+    // ============================================================
+    // DEBUG: run the daily-revenue pipeline with the same window as the
+    // dashboard, return the raw aggregation rows so we can see exactly
+    // which orders contribute and why. Temporary.
+    // ============================================================
+    @GetMapping("/_debug/revenue-pipeline-today")
+    public ResponseEntity<ApiResponse<List<Document>>> debugRevenuePipelineToday() {
+        ZoneId ict = ZoneId.of("Asia/Ho_Chi_Minh");
+        Instant start = LocalDate.now(ict).atStartOfDay(ict).toInstant();
+        Instant end = start.plus(1, ChronoUnit.DAYS);
+
+        // Same shape as ReportingService.revenueEventCriteria + 4 unwind stages,
+        // but stop before the final $group so we can inspect each candidate order.
+        org.bson.Document match = new org.bson.Document("$match", new org.bson.Document()
+                .append("statusHistory.0", new org.bson.Document("$exists", true))
+                .append("statusHistory.changedAt",
+                        new org.bson.Document("$gte", start).append("$lt", end))
+                .append("$and", java.util.List.of(
+                        new org.bson.Document("$or", java.util.List.of(
+                                new org.bson.Document("status", "DELIVERED"),
+                                new org.bson.Document("paymentStatus", "PAID"),
+                                new org.bson.Document("paymentStatus", "SUCCESS"))),
+                        new org.bson.Document("paymentStatus",
+                                new org.bson.Document("$ne", "REFUNDED"))
+                )));
+        var pipeline = java.util.List.of(
+                match,
+                new org.bson.Document("$unwind", "$statusHistory"),
+                new org.bson.Document("$match", new org.bson.Document(
+                        "$expr", new org.bson.Document(
+                                "$in", java.util.List.of("$statusHistory.status",
+                                        java.util.List.of("DELIVERED", "PAID", "SUCCESS"))))),
+                new org.bson.Document("$sort",
+                        new org.bson.Document("statusHistory.changedAt", -1)),
+                new org.bson.Document("$group",
+                        new org.bson.Document("_id", "$_id")
+                                .append("revenueAt",
+                                        new org.bson.Document("$first", "$statusHistory.changedAt"))
+                                .append("totalAmount",
+                                        new org.bson.Document("$first", "$totalAmount"))
+                                .append("paymentStatus",
+                                        new org.bson.Document("$first", "$paymentStatus"))
+                                .append("status",
+                                        new org.bson.Document("$first", "$status"))),
+                new org.bson.Document("$match",
+                        new org.bson.Document("revenueAt",
+                                new org.bson.Document("$gte", start).append("$lt", end)))
+        );
+
+        List<Document> rows = new ArrayList<>();
+        mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
+        return ResponseEntity.ok(ApiResponse.success(rows));
+    }
 }
