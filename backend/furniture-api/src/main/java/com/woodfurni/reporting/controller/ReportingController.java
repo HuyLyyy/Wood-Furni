@@ -6,10 +6,19 @@ import com.woodfurni.reporting.service.ReportingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import org.bson.Document;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -27,6 +36,7 @@ import java.util.List;
 public class ReportingController {
 
     private final ReportingService reportingService;
+    private final MongoTemplate mongoTemplate;
 
     // ============================================================
     // 1. Dashboard summary
@@ -92,5 +102,27 @@ public class ReportingController {
     public ResponseEntity<ApiResponse<List<CategoryBreakdownResponse>>> getCategoryBreakdown() {
         List<CategoryBreakdownResponse> data = reportingService.getCategoryBreakdown();
         return ResponseEntity.ok(ApiResponse.success(data));
+    }
+
+    // ============================================================
+    // DEBUG: dump orders in ICT today so we can inspect what the
+    // aggregation actually sees. Temporary — remove after fix is verified.
+    // ============================================================
+    @GetMapping("/_debug/orders-today")
+    public ResponseEntity<ApiResponse<List<Document>>> debugOrdersToday() {
+        ZoneId ict = ZoneId.of("Asia/Ho_Chi_Minh");
+        Instant start = LocalDate.now(ict).atStartOfDay(ict).toInstant();
+        Instant end = start.plus(1, ChronoUnit.DAYS);
+        // Window is intentionally wide: orders created in the last 7 days, so we
+        // can spot whether statusHistory events land on the right day.
+        Instant since = start.minus(7, ChronoUnit.DAYS);
+
+        List<Document> rows = new ArrayList<>();
+        for (Document d : mongoTemplate.find(
+                new Query(Criteria.where("createdAt").gte(since)),
+                Document.class, "orders")) {
+            rows.add(d);
+        }
+        return ResponseEntity.ok(ApiResponse.success(rows));
     }
 }
