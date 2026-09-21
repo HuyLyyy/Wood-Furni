@@ -64,8 +64,23 @@ public class SecurityConfig {
 
                 // Authorization rules
                 .authorizeHttpRequests(auth -> auth
+                        // ========== CORS preflight ==========
+                        // Browsers send an OPTIONS request before cross-origin
+                        // GET/POST/PUT/DELETE. Without this permitAll, Spring
+                        // Security returns 403 on OPTIONS and the browser reports
+                        // "Invalid CORS request". (WebMvcConfigurer and
+                        // CorsConfigurationSource alone are not sufficient.)
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
                         // ========== Public Endpoints ==========
-                        // Auth endpoints
+                        // Auth endpoints — match the full servlet path because
+                        // DispatcherServlet is mapped to /api/v1, so the servlet
+                        // path for /api/v1/auth/login is /api/v1/auth/login.
+                        // Using mvcMatchers() would auto-handle this but requires
+                        // spring-security-config. Using the explicit path here is
+                        // clearer and equivalent.
+                        .requestMatchers("/api/v1/auth/**").permitAll()
+                        // Also keep the short form for direct gateway calls.
                         .requestMatchers("/auth/**").permitAll()
 
                         // Catalog - public read-only (protected endpoints use @PreAuthorize per Controller)
