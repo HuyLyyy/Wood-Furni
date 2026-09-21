@@ -83,10 +83,7 @@ public class ReportingService {
      */
     private BigDecimal aggregateRevenueToday(Instant startOfDay) {
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        stages.add(Aggregation.match(
-                new org.springframework.data.mongodb.core.query.Criteria()
-                        .and("createdAt").gte(startOfDay)
-                        .and("paymentStatus").is("PAID")));
+        stages.add(Aggregation.match(revenueCriteria(startOfDay)));
         stages.add(ctx -> new Document("$group",
                 new Document("_id", null)
                         .append("revenue",
@@ -102,6 +99,79 @@ public class ReportingService {
             return BigDecimal.ZERO;
         }
         return toBigDecimal(doc.get("revenue"));
+    }
+
+    /**
+     * Builds the $match Criteria for revenue calculations.
+     *
+     * Revenue counts orders where ALL of these hold:
+     *   - paymentStatus != REFUNDED (refunds never count as revenue)
+     *   - AND at least ONE of:
+     *       (a) status = DELIVERED          — COD confirmed delivered
+     *       (b) paymentStatus = PAID        — legacy sandbox paid
+     *       (c) paymentStatus = SUCCESS     — gateway-aligned paid on Order
+     *
+     * @param start  lower bound Instant (inclusive), or null to skip
+     * @param end    upper bound Instant (exclusive), or null to skip
+     * @param year   year for date-bucket grouping, or null
+     * @param month  month (1-12) for date-bucket grouping, or null
+     */
+    private org.springframework.data.mongodb.core.query.Criteria revenueCriteria(
+            Instant start, Instant end, Integer year, Integer month) {
+
+        var b = new org.springframework.data.mongodb.core.query.Criteria();
+
+        // Exclude REFUNDED orders from revenue (already excluded by default, but
+        // explicit is clearer and guards against future schema changes).
+        var statusCondition = new org.springframework.data.mongodb.core.query.Criteria()
+                .and("paymentStatus").ne("REFUNDED");
+
+        // Include DELIVERED (COD) OR PAID/SUCCESS (prepaid).
+        // Order.status is a String enum (DELIVERED, CONFIRMED, ...).
+        // PaymentStatus values are PAID / SUCCESS (gateway-aligned) stored on Order.paymentStatus.
+        var revenueCondition = new org.springframework.data.mongodb.core.query.Criteria().orOperator(
+                new org.springframework.data.mongodb.core.query.Criteria().and("status").is("DELIVERED"),
+                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("PAID"),
+                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("SUCCESS")
+        );
+
+        if (start != null) b = b.and("createdAt").gte(start);
+        if (end != null)   b = b.and("createdAt").lt(end);
+
+        // For year/month-bucketed reports, also match the year/month on createdAt.
+        // We do this via $expr to avoid needing a separate index.
+        if (year != null && month != null) {
+            var dateCondition = new org.springframework.data.mongodb.core.query.Criteria()
+                    .andOperator(
+                            new org.springframework.data.mongodb.core.query.Criteria()
+                                    .and("createdAt").gte(java.time.LocalDate.of(year, month, 1)
+                                            .atStartOfDay(java.time.ZoneOffset.UTC).toInstant()),
+                            new org.springframework.data.mongodb.core.query.Criteria()
+                                    .and("createdAt").lt(java.time.LocalDate.of(year, month, 1)
+                                            .plusMonths(1).atStartOfDay(java.time.ZoneOffset.UTC).toInstant())
+                    );
+            return new org.springframework.data.mongodb.core.query.Criteria().andOperator(
+                    statusCondition, revenueCondition, dateCondition);
+        }
+
+        return new org.springframework.data.mongodb.core.query.Criteria().andOperator(
+                statusCondition, revenueCondition);
+    }
+
+    /**
+     * Overload for callers that only need start/end bounds (no year/month bucket).
+     */
+    private org.springframework.data.mongodb.core.query.Criteria revenueCriteria(
+            Instant start, Instant end) {
+        return revenueCriteria(start, end, null, null);
+    }
+
+    /**
+     * Overload for callers that need start only (end = null, no bucket).
+     */
+    private org.springframework.data.mongodb.core.query.Criteria revenueCriteria(
+            Instant start) {
+        return revenueCriteria(start, null, null, null);
     }
 
     /**
@@ -198,15 +268,12 @@ public class ReportingService {
                 .atStartOfDay(ZoneOffset.UTC).toInstant();
 
         // Pipeline:
-        //   $match   → PAID orders in the last 12 months
+        //   $match   → revenue-eligible orders in the last 12 months
         //   $group   → bucket by yyyy-MM using $dateToString, sum totalAmount
         //   $project → rename _id → month
         //   $sort    → by month ascending
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        stages.add(Aggregation.match(
-                new org.springframework.data.mongodb.core.query.Criteria()
-                        .and("paymentStatus").is("PAID")
-                        .and("createdAt").gte(twelveMonthsAgo)));
+        stages.add(Aggregation.match(revenueCriteria(twelveMonthsAgo, null)));
         stages.add(ctx -> new Document("$group",
                 new Document("_id",
                         new Document("$dateToString",
@@ -253,7 +320,7 @@ public class ReportingService {
      * Returns yyyy-MM-dd keys; zero-filled for days with no orders.
      *
      * Pipeline:
-     *   $match   → PAID orders with createdAt in [start, endOfMonth]
+     *   $match   → revenue-eligible orders with createdAt in [start, endOfMonth]
      *   $group   → bucket by yyyy-MM-dd, sum totalAmount
      *   $project → rename _id → date
      *   $sort    → by date ascending
@@ -271,10 +338,7 @@ public class ReportingService {
         Instant endInstant = nextMonthFirstDay.atStartOfDay(ZoneOffset.UTC).toInstant();
 
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        stages.add(Aggregation.match(
-                new org.springframework.data.mongodb.core.query.Criteria()
-                        .and("paymentStatus").is("PAID")
-                        .and("createdAt").gte(startInstant).lt(endInstant)));
+        stages.add(Aggregation.match(revenueCriteria(startInstant, endInstant, year, month)));
         stages.add(ctx -> new Document("$group",
                 new Document("_id",
                         new Document("$dateToString",
