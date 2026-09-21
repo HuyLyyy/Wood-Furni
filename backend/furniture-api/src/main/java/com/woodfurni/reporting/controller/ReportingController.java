@@ -290,7 +290,8 @@ public class ReportingController {
                                                 .append("date", "$revenueAt")
                                                 .append("timezone", "Asia/Ho_Chi_Minh")))
                                 .append("revenue",
-                                        new org.bson.Document("$sum", "$totalAmount")))
+                                        new org.bson.Document("$sum",
+                                                new org.bson.Document("$toDecimal", "$totalAmount"))))
         );
 
         List<Document> rows = new ArrayList<>();

@@ -123,7 +123,8 @@ public class ReportingService {
         stages.add(ctx -> new Document("$group",
                 new Document("_id", null)
                         .append("revenue",
-                                new Document("$sum", "$totalAmount"))));
+                                new Document("$sum",
+                                        new Document("$toDecimal", "$totalAmount")))));
 
         Aggregation pipeline = Aggregation.newAggregation(stages);
 
@@ -289,7 +290,8 @@ public class ReportingService {
                                         .append("date", "$revenueAt")
                                         .append("timezone", "Asia/Ho_Chi_Minh")))
                         .append("revenue",
-                                new Document("$sum", "$totalAmount"))));
+                                new Document("$sum",
+                                        new Document("$toDecimal", "$totalAmount")))));
         stages.add(ctx -> new Document("$project",
                 new Document("month", "$_id")
                         .append("revenue", 1)
@@ -389,7 +391,8 @@ public class ReportingService {
                                         .append("date", "$revenueAt")
                                         .append("timezone", "Asia/Ho_Chi_Minh")))
                         .append("revenue",
-                                new Document("$sum", "$totalAmount"))));
+                                new Document("$sum",
+                                        new Document("$toDecimal", "$totalAmount")))));
         stages.add(ctx -> new Document("$project",
                 new Document("date", "$_id")
                         .append("revenue", 1)
