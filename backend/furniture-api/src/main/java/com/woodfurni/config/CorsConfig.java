@@ -20,7 +20,12 @@ import java.util.List;
  *      has no configuration source and all pre-flight OPTIONS requests are
  *      rejected with 403 before any controller or filter can run.
  *
- * Both configs are kept in sync with the same ALLOWED_ORIGINS list.
+ * FIX (2026-09-21): Using setAllowedOrigins() with allowCredentials(true)
+ * silently disables CORS — no Access-Control headers are added to the response.
+ * The fix is to use setAllowedOriginPatterns() with wildcard patterns.
+ * setAllowedOriginPatterns() with a wildcard (e.g. "https://*.vercel.app") IS
+ * compatible with allowCredentials(true) and will return the request's actual
+ * Origin in the Access-Control-Allow-Origin response header.
  *
  * Allows the customer-app and admin-app frontends (hosted on Vercel/Netlify/localhost)
  * to call this API directly without going through the gateway.
@@ -28,28 +33,23 @@ import java.util.List;
 @Configuration
 public class CorsConfig {
 
-    private static final List<String> ALLOWED_ORIGINS = List.of(
+    private static final List<String> ALLOWED_ORIGIN_PATTERNS = List.of(
             // Local development
-            "http://localhost:3000",
-            "http://localhost:5173",
-            "http://localhost:5174",
-            "http://localhost:8080",
+            "http://localhost:*",
 
             // Vercel deployments (production + preview)
-            "https://wood-furni-customer.vercel.app",
-            "https://wood-furni-admin.vercel.app",
             "https://*.vercel.app"
     );
 
     // -------------------------------------------------------------------------
     // Spring Security CORS — MUST be a CorsConfigurationSource bean.
-    // Without this, Spring Security rejects OPTIONS pre-flight with 403 and the
-    // browser reports "Invalid CORS request".
+    // Uses setAllowedOriginPatterns() + allowCredentials(true) which IS
+    // supported by Spring and returns the actual Origin in the response header.
     // -------------------------------------------------------------------------
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(ALLOWED_ORIGINS);
+        config.setAllowedOriginPatterns(ALLOWED_ORIGIN_PATTERNS);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("*"));
         config.setExposedHeaders(List.of("Authorization", "Content-Disposition"));
@@ -65,7 +65,7 @@ public class CorsConfig {
 
     // -------------------------------------------------------------------------
     // Spring MVC CORS — for request routing (used alongside Security CORS).
-    // The same ALLOWED_ORIGINS list is shared.
+    // Also uses wildcard patterns for compatibility with allowCredentials(true).
     // -------------------------------------------------------------------------
     @Bean
     public WebMvcConfigurer corsConfigurer() {
@@ -73,7 +73,7 @@ public class CorsConfig {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/api/**")
-                        .allowedOrigins(ALLOWED_ORIGINS.toArray(new String[0]))
+                        .allowedOriginPatterns("http://localhost:*", "https://*.vercel.app")
                         .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                         .allowedHeaders("*")
                         .exposedHeaders("Authorization", "Content-Disposition")
