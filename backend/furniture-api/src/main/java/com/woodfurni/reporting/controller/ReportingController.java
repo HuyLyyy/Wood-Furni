@@ -179,4 +179,64 @@ public class ReportingController {
         mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
         return ResponseEntity.ok(ApiResponse.success(rows));
     }
+
+    /**
+     * Mirror of getDailyRevenue but exposed for inspection. Returns the raw
+     * rows that survive the entire pipeline (i.e. what would be summed into
+     * the per-day buckets). If this is empty but /_debug/revenue-pipeline-today
+     * is not, the bucket-by-date stage is the culprit.
+     */
+    private final com.woodfurni.reporting.service.ReportingService reportingService;
+    @GetMapping("/_debug/revenue-pipeline-month")
+    public ResponseEntity<ApiResponse<List<Document>>> debugRevenuePipelineMonth(
+            @RequestParam(defaultValue = "2026") int year,
+            @RequestParam(defaultValue = "9") int month) {
+        ZoneId ict = ZoneId.of("Asia/Ho_Chi_Minh");
+        LocalDate firstDay = LocalDate.of(year, month, 1);
+        LocalDate nextMonthFirstDay = firstDay.plusMonths(1);
+        Instant startInstant = firstDay.atStartOfDay(ict).toInstant();
+        Instant endInstant = nextMonthFirstDay.atStartOfDay(ict).toInstant();
+
+        // Same $match + first 4 stages as getDailyRevenue — stop before the
+        // final dateToString $group so we can see which orders survived.
+        org.bson.Document match = new org.bson.Document("$match", new org.bson.Document()
+                .append("statusHistory.0", new org.bson.Document("$exists", true))
+                .append("statusHistory.changedAt",
+                        new org.bson.Document("$gte", startInstant).append("$lt", endInstant))
+                .append("$and", java.util.List.of(
+                        new org.bson.Document("$or", java.util.List.of(
+                                new org.bson.Document("status", "DELIVERED"),
+                                new org.bson.Document("paymentStatus", "PAID"),
+                                new org.bson.Document("paymentStatus", "SUCCESS"))),
+                        new org.bson.Document("paymentStatus",
+                                new org.bson.Document("$ne", "REFUNDED"))
+                )));
+        var pipeline = java.util.List.of(
+                match,
+                new org.bson.Document("$unwind", "$statusHistory"),
+                new org.bson.Document("$match", new org.bson.Document(
+                        "$expr", new org.bson.Document(
+                                "$in", java.util.List.of("$statusHistory.status",
+                                        java.util.List.of("DELIVERED", "PAID", "SUCCESS"))))),
+                new org.bson.Document("$sort",
+                        new org.bson.Document("statusHistory.changedAt", -1)),
+                new org.bson.Document("$group",
+                        new org.bson.Document("_id", "$_id")
+                                .append("revenueAt",
+                                        new org.bson.Document("$first", "$statusHistory.changedAt"))
+                                .append("totalAmount",
+                                        new org.bson.Document("$first", "$totalAmount"))
+                                .append("paymentStatus",
+                                        new org.bson.Document("$first", "$paymentStatus"))
+                                .append("status",
+                                        new org.bson.Document("$first", "$status"))),
+                new org.bson.Document("$match",
+                        new org.bson.Document("revenueAt",
+                                new org.bson.Document("$gte", startInstant).append("$lt", endInstant)))
+        );
+
+        List<Document> rows = new ArrayList<>();
+        mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
+        return ResponseEntity.ok(ApiResponse.success(rows));
+    }
 }
