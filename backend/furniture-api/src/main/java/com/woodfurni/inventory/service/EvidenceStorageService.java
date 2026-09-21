@@ -197,9 +197,8 @@ public class EvidenceStorageService {
                 originalName = gridFsFile.getFilename(); // fallback
             }
 
-            // Use GridFSBucket for streaming — this is the official MongoDB driver API,
-            // unaffected by Spring Data MongoDB wrapper changes.
-            String bucketName = gridFsTemplate.getBucketName();
+            // GridFS default bucket name is "fs" (hardcoded by MongoDB spec).
+            String bucketName = "fs";
             var db = mongoTemplate.getDb();
             GridFSBucket bucket = GridFSBuckets.create(db, bucketName);
 
