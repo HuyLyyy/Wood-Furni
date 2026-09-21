@@ -49,8 +49,8 @@ const PaymentReceiptPrint = ({ order }) => {
                     <div style={countryDivider()} />
                 </div>
 
-                {/* ── Issuer + receipt title ─────────────────────────── */}
-                <div style={titleRow()}>
+                {/* ── Issuer + receipt title + QR (3 columns) ────────── */}
+                <div style={headerRow()}>
                     <div style={issuerCol()}>
                         <div style={{ ...issuerLine(), fontWeight: 700 }}>Đơn vị: CÔNG TY WOODFURNI</div>
                         <div style={issuerLine()}>Nội thất gỗ cao cấp</div>
@@ -58,6 +58,15 @@ const PaymentReceiptPrint = ({ order }) => {
                     <div style={receiptTitleCol()}>
                         <div style={receiptTitle()}>BIÊN NHẬN THU TIỀN</div>
                         <div style={receiptSub()}>Ngày {extractDay(orderDate)} tháng {extractMonth(orderDate)} năm {extractYear(orderDate)}</div>
+                    </div>
+                    <div style={qrCol()}>
+                        <img
+                            src={QR_SRC}
+                            alt="Mã QR chuyển khoản ngân hàng"
+                            style={qrImg()}
+                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                        <div style={qrCaption()}>Quét để chuyển khoản</div>
                     </div>
                 </div>
 
@@ -207,6 +216,9 @@ export default PaymentReceiptPrint;
 
 const NAVY = '#1a3a8a';
 const NAVY_LIGHT = '#2c52a8';
+// VietQR / bank account logo path. Bundled by Vite from /public and
+// stays crisp on screen + print.
+const QR_SRC = '/bank-qr.png';
 
 const page = () => ({
     fontFamily: '"Segoe UI", Arial, sans-serif',
@@ -254,6 +266,42 @@ const titleRow = () => ({
     alignItems: 'flex-start',
     marginTop: 18,
     marginBottom: 16,
+});
+
+// Header layout: [issuer] [title] [QR]
+// Three columns so the QR sits in the top-right corner of the receipt,
+// next to the "BIÊN NHẬN THU TIỀN" heading.
+const headerRow = () => ({
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginTop: 18,
+    marginBottom: 16,
+});
+
+const qrCol = () => ({
+    width: 130,
+    textAlign: 'center',
+});
+
+const qrImg = () => ({
+    width: 120,
+    height: 120,
+    border: '1px solid #ddd',
+    padding: 4,
+    background: '#fff',
+    display: 'block',
+    margin: '0 auto',
+    // Keep crisp when the PDF renderer resamples the image.
+    imageRendering: 'pixelated',
+});
+
+const qrCaption = () => ({
+    fontSize: 11,
+    fontStyle: 'italic',
+    color: '#555',
+    marginTop: 4,
 });
 
 const issuerCol = () => ({
