@@ -7,6 +7,7 @@ import ProductListPage from '../features/catalog/ProductListPage.jsx';
 import ProductFormPage from '../features/catalog/ProductFormPage.jsx';
 import CategoryPage from '../features/catalog/CategoryPage.jsx';
 import InventoryPage from '../features/inventory/InventoryPage.jsx';
+import PrintSlipsPage from '../features/printslips/PrintSlipsPage.jsx';
 import PrepareOrderPage from '../features/warehouse/PrepareOrderPage.jsx';
 import OrderListPage from '../features/order/OrderListPage.jsx';
 import OrderDetailPage from '../features/order/OrderDetailPage.jsx';
@@ -54,6 +55,9 @@ export default function AppRouter() {
 
                 {/* Inventory — built in Task 12.4 */}
                 <Route path="/inventory" element={<InventoryPage />} />
+
+                {/* Print slips (blank Excel templates for manual stock adjustments) */}
+                <Route path="/print-slips" element={<PrintSlipsPage />} />
 
                 {/* Warehouse prepare — Task 12.6 */}
                 <Route path="/prepare-orders" element={<PrepareOrderPage />} />

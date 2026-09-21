@@ -32,6 +32,7 @@ export const MENU = [
     { id: 'products', label: 'Sản phẩm', path: '/products', icon: '🪑', roles: ['ADMIN', 'CONTENT'] },
     { id: 'categories', label: 'Danh mục', path: '/categories', icon: '📁', roles: ['ADMIN', 'CONTENT'] },
     { id: 'inventory', label: 'Kho hàng', path: '/inventory', icon: '📦', roles: ['ADMIN', 'WAREHOUSE'] },
+    { id: 'print-slips', label: 'Phiếu in', path: '/print-slips', icon: '🖨️', roles: ['ADMIN', 'WAREHOUSE'] },
     { id: 'orders', label: 'Đơn hàng', path: '/orders', icon: '🧾', roles: ['ADMIN', 'SALES'] },
     { id: 'prepare-orders', label: 'Chuẩn bị đơn', path: '/prepare-orders', icon: '📦', roles: ['ADMIN', 'WAREHOUSE'] },
     { id: 'customers', label: 'Khách hàng', path: '/customers', icon: '👥', roles: ['ADMIN', 'SALES'] },

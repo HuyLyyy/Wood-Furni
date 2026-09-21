@@ -8,8 +8,10 @@ import com.woodfurni.inventory.dto.InventoryAdjustRequest;
 import com.woodfurni.inventory.dto.InventoryHistoryResponse;
 import com.woodfurni.inventory.dto.InventoryResponse;
 import com.woodfurni.inventory.enums.AdjustmentReason;
+import com.woodfurni.inventory.enums.PrintSlipType;
 import com.woodfurni.inventory.service.EvidenceStorageService;
 import com.woodfurni.inventory.service.InventoryService;
+import com.woodfurni.inventory.service.PrintSlipTemplateService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -38,6 +40,7 @@ public class InventoryController {
     private final InventoryService inventoryService;
     private final UserRepository userRepository;
     private final EvidenceStorageService evidenceStorageService;
+    private final PrintSlipTemplateService printSlipTemplateService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
@@ -197,6 +200,74 @@ public class InventoryController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition)
                 .body(resource);
     }
+
+    // ── Print-slip template endpoints ──────────────────────────────────────
+    //
+    // "Phiếu in" là các file Excel template TRỐNG mà admin / warehouse staff
+    // tải về để in ra giấy, điền thông tin bằng tay (mã SP, tên SP, số lượng,
+    // giá thành, ghi chú), rồi upload lại làm file minh chứng trong luồng
+    // điều chỉnh tồn kho (xem PATCH /inventory/{id}/adjust).
+    //
+    // Templates được sinh on-demand (không lưu GridFS) — mỗi lần gọi là 1
+    // file .xlsx mới, rất nhẹ.
+
+    /**
+     * GET /api/v1/inventory/print-templates
+     * Trả danh sách các loại phiếu in mà frontend có thể render.
+     * Không yêu cầu auth đặc biệt — chỉ cần đăng nhập admin-app.
+     */
+    @GetMapping("/print-templates")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
+    @Operation(summary = "List available print-slip template types",
+               description = "Returns the set of inventory adjustment slip types (nhập kho, xuất kho, hư hỏng, mất mát, trả lại, chênh lệch, thanh lý) that admin / warehouse staff can download as blank Excel templates.")
+    public ResponseEntity<ApiResponse<java.util.List<PrintSlipTypeInfo>>> listPrintTemplates() {
+        java.util.List<PrintSlipTypeInfo> types = new java.util.ArrayList<>();
+        for (PrintSlipType type : PrintSlipType.values()) {
+            types.add(new PrintSlipTypeInfo(type.name(), type.getDisplayName()));
+        }
+        return ResponseEntity.ok(ApiResponse.success(types));
+    }
+
+    /**
+     * GET /api/v1/inventory/print-templates/{type}/download
+     * Trả file Excel template trống cho loại phiếu đã chọn.
+     * Tên file: {fileNamePrefix}-{yyyy-MM-dd}.xlsx
+     */
+    @GetMapping("/print-templates/{type}/download")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
+    @Operation(summary = "Download a blank Excel template for a given slip type",
+               description = "Generates an on-demand Excel (.xlsx) template with headers (STT|Mã SP|Tên SP|Số lượng|Giá thành|Ghi chú), 20 empty data rows, and signature lines. User prints it, fills it by hand, then uploads it as the 'evidence' file in a stock adjustment.")
+    public ResponseEntity<Resource> downloadPrintTemplate(@PathVariable String type) {
+        PrintSlipType slipType;
+        try {
+            slipType = PrintSlipType.valueOf(type.toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        byte[] bytes = printSlipTemplateService.generateTemplate(slipType);
+
+        // Build filename: Mau-phieu-nhap-kho-2026-09-21.xlsx
+        String datePart = java.time.LocalDate.now().toString(); // ISO yyyy-MM-dd
+        String filename = slipType.getFileNamePrefix() + "-" + datePart + ".xlsx";
+
+        String safeAscii = filename.replaceAll("[^\\x20-\\x7E]", "_");
+        String contentDisposition =
+                "attachment; filename=\"" + safeAscii + "\"; "
+              + "filename*=UTF-8''" + java.net.URLEncoder.encode(filename, java.nio.charset.StandardCharsets.UTF_8);
+
+        org.springframework.core.io.ByteArrayResource resource =
+                new org.springframework.core.io.ByteArrayResource(bytes);
+
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition)
+                .body(resource);
+    }
+
+    /** DTO trả về cho frontend khi list templates. */
+    public record PrintSlipTypeInfo(String code, String displayName) {}
 
     @GetMapping("/{productId}/history")
     @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")

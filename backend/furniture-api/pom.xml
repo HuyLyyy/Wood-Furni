@@ -104,6 +104,17 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- ========== Apache POI (Excel xlsx generation) ==========
+             Used by PrintSlipTemplateService to generate blank Excel
+             templates for the various inventory adjustment slip types
+             (nhập kho, xuất kho, hư hỏng, mất mát, trả lại, chênh lệch,
+             thanh lý). poi-ooxml brings in poi-core + xmlbeans. -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
     <!-- ========== Test Dependencies ========== -->
     <dependency>
         <groupId>org.springframework.boot</groupId>

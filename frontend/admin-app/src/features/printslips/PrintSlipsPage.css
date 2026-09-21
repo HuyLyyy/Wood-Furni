@@ -1,0 +1,109 @@
+/* PrintSlipsPage — card grid for downloading blank Excel templates. */
+
+.print-slips-page {
+    padding: 24px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.print-slips-page__header {
+    margin-bottom: 24px;
+}
+
+.print-slips-page__title {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+    color: #1f2937;
+}
+
+.print-slips-page__subtitle {
+    font-size: 14px;
+    line-height: 1.6;
+    color: #4b5563;
+    margin: 0;
+    max-width: 800px;
+}
+
+.print-slips-page__loading {
+    padding: 48px;
+    text-align: center;
+    color: #6b7280;
+    font-size: 14px;
+}
+
+.print-slips-page__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+}
+
+.print-slip-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.print-slip-card:hover {
+    border-color: #2563eb;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(37, 99, 235, 0.08);
+}
+
+.print-slip-card__icon {
+    font-size: 36px;
+    margin-bottom: 12px;
+}
+
+.print-slip-card__title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+    margin: 0 0 8px 0;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+}
+
+.print-slip-card__meta {
+    font-size: 12px;
+    color: #6b7280;
+    margin: 0 0 16px 0;
+}
+
+.print-slip-card__meta code {
+    background: #f3f4f6;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    color: #374151;
+}
+
+.print-slip-card__btn {
+    margin-top: auto;
+    width: 100%;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 8px;
+    background: #2563eb;
+    color: white;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 120ms ease;
+}
+
+.print-slip-card__btn:hover:not(:disabled) {
+    background: #1d4ed8;
+}
+
+.print-slip-card__btn:disabled {
+    background: #93c5fd;
+    cursor: wait;
+}
