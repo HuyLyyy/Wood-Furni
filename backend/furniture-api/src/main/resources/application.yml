@@ -35,9 +35,9 @@ spring:
 # Server Configuration
 server:
   port: ${PORT:${SERVER_PORT:8080}}
-    servlet:
+  servlet:
       context-path: ${CONTEXT_PATH:/api/v1}
-    multipart:
+      multipart:
       max-file-size: 10MB
       max-request-size: 20MB
   error:
