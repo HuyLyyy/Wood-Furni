@@ -82,8 +82,42 @@ public class ReportingService {
      *   $group  → sum totalAmount into revenue
      */
     private BigDecimal aggregateRevenueToday(Instant startOfDay) {
+        // Bucketed by event time: revenue counted on the day the order flipped
+        // to DELIVERED / PAID / SUCCESS — not the day it was created. This
+        // matches the daily chart logic and is what users expect from
+        // "Doanh thu hôm nay" (revenue realized today).
+        Instant endOfDay = startOfDay.plus(1, ChronoUnit.DAYS);
+
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        stages.add(Aggregation.match(revenueCriteria(startOfDay)));
+        stages.add(Aggregation.match(
+                new org.springframework.data.mongodb.core.query.Criteria()
+                        .and("statusHistory.0").exists(true)
+                        .and("statusHistory.changedAt").gte(startOfDay).lt(endOfDay)
+                        .andOperator(
+                                new org.springframework.data.mongodb.core.query.Criteria()
+                                        .orOperator(
+                                                new org.springframework.data.mongodb.core.query.Criteria().and("status").is("DELIVERED"),
+                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("PAID"),
+                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("SUCCESS")
+                                        ),
+                                new org.springframework.data.mongodb.core.query.Criteria()
+                                        .and("paymentStatus").ne("REFUNDED")
+                        )));
+        stages.add(ctx -> new Document("$unwind", "$statusHistory"));
+        stages.add(ctx -> new Document("$match",
+                new Document("$expr",
+                        new Document("$in", List.of("$statusHistory.status",
+                                List.of("DELIVERED", "PAID", "SUCCESS"))))));
+        stages.add(ctx -> new Document("$sort", new Document("statusHistory.changedAt", -1)));
+        stages.add(ctx -> new Document("$group",
+                new Document("_id", "$_id")
+                        .append("revenueAt",
+                                new Document("$first", "$statusHistory.changedAt"))
+                        .append("totalAmount", new Document("$first", "$totalAmount"))));
+        stages.add(ctx -> new Document("$match",
+                new Document("revenueAt",
+                        new Document("$gte", startOfDay)
+                                .append("$lt", endOfDay))));
         stages.add(ctx -> new Document("$group",
                 new Document("_id", null)
                         .append("revenue",
@@ -267,18 +301,49 @@ public class ReportingService {
                 .minusMonths(11).withDayOfMonth(1)
                 .atStartOfDay(ZoneOffset.UTC).toInstant();
 
-        // Pipeline:
-        //   $match   → revenue-eligible orders in the last 12 months
-        //   $group   → bucket by yyyy-MM using $dateToString, sum totalAmount
-        //   $project → rename _id → month
-        //   $sort    → by month ascending
+        // Pipeline (revenue bucketed by EVENT TIME, not createdAt):
+        //   $match    → revenue-eligible orders touched in last 12 months
+        //   $unwind   → explode statusHistory
+        //   $match    → keep only the entry where status flipped to
+        //               DELIVERED / PAID / SUCCESS (the moment revenue was recognized)
+        //   $sort     → most recent event first
+        //   $group    → one revenueAt per order (the latest recognition event)
+        //   $group    → bucket by yyyy-MM of revenueAt, sum totalAmount
+        //   $project  → reshape
+        //   $sort     → by month ascending
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        stages.add(Aggregation.match(revenueCriteria(twelveMonthsAgo, null)));
+        // Bound the recognition event into the same 12-month window as before so
+        // older orders that get paid later still show up in the chart.
+        stages.add(Aggregation.match(
+                new org.springframework.data.mongodb.core.query.Criteria()
+                        .and("statusHistory.0").exists(true)
+                        .and("statusHistory.changedAt").gte(twelveMonthsAgo)
+                        .andOperator(
+                                new org.springframework.data.mongodb.core.query.Criteria()
+                                        .orOperator(
+                                                new org.springframework.data.mongodb.core.query.Criteria().and("status").is("DELIVERED"),
+                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("PAID"),
+                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("SUCCESS")
+                                        ),
+                                new org.springframework.data.mongodb.core.query.Criteria()
+                                        .and("paymentStatus").ne("REFUNDED")
+                        )));
+        stages.add(ctx -> new Document("$unwind", "$statusHistory"));
+        stages.add(ctx -> new Document("$match",
+                new Document("$expr",
+                        new Document("$in", List.of("$statusHistory.status",
+                                List.of("DELIVERED", "PAID", "SUCCESS"))))));
+        stages.add(ctx -> new Document("$sort", new Document("statusHistory.changedAt", -1)));
+        stages.add(ctx -> new Document("$group",
+                new Document("_id", "$_id")
+                        .append("revenueAt",
+                                new Document("$first", "$statusHistory.changedAt"))
+                        .append("totalAmount", new Document("$first", "$totalAmount"))));
         stages.add(ctx -> new Document("$group",
                 new Document("_id",
                         new Document("$dateToString",
                                 new Document("format", "%Y-%m")
-                                        .append("date", "$createdAt")
+                                        .append("date", "$revenueAt")
                                         .append("timezone", "UTC")))
                         .append("revenue",
                                 new Document("$sum", "$totalAmount"))));
@@ -319,11 +384,20 @@ public class ReportingService {
      * Daily revenue for a single calendar month (1..daysInMonth rows).
      * Returns yyyy-MM-dd keys; zero-filled for days with no orders.
      *
+     * Buckets revenue by EVENT TIME (statusHistory[].changedAt of the entry
+     * where status flipped to DELIVERED / PAID / SUCCESS) — not by createdAt —
+     * so a COD order created yesterday but delivered today shows up on today's bar.
+     *
      * Pipeline:
-     *   $match   → revenue-eligible orders with createdAt in [start, endOfMonth]
-     *   $group   → bucket by yyyy-MM-dd, sum totalAmount
-     *   $project → rename _id → date
-     *   $sort    → by date ascending
+     *   $match    → orders with at least one revenue recognition event in [start, endOfMonth]
+     *   $unwind   → explode statusHistory
+     *   $match    → keep entries where status flipped to DELIVERED/PAID/SUCCESS
+     *   $sort     → most recent first
+     *   $group    → one revenueAt per order (latest recognition event)
+     *   $match    → restrict to the requested month
+     *   $group    → bucket by yyyy-MM-dd of revenueAt, sum totalAmount
+     *   $project  → rename _id → date
+     *   $sort     → by date ascending
      */
     public List<DailyRevenueResponse> getDailyRevenue(int year, int month) {
         // Defensive: clamp month/year to sane ranges so a bad input doesn't
@@ -338,12 +412,40 @@ public class ReportingService {
         Instant endInstant = nextMonthFirstDay.atStartOfDay(ZoneOffset.UTC).toInstant();
 
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        stages.add(Aggregation.match(revenueCriteria(startInstant, endInstant, year, month)));
+        stages.add(Aggregation.match(
+                new org.springframework.data.mongodb.core.query.Criteria()
+                        .and("statusHistory.0").exists(true)
+                        .and("statusHistory.changedAt").gte(startInstant).lt(endInstant)
+                        .andOperator(
+                                new org.springframework.data.mongodb.core.query.Criteria()
+                                        .orOperator(
+                                                new org.springframework.data.mongodb.core.query.Criteria().and("status").is("DELIVERED"),
+                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("PAID"),
+                                                new org.springframework.data.mongodb.core.query.Criteria().and("paymentStatus").is("SUCCESS")
+                                        ),
+                                new org.springframework.data.mongodb.core.query.Criteria()
+                                        .and("paymentStatus").ne("REFUNDED")
+                        )));
+        stages.add(ctx -> new Document("$unwind", "$statusHistory"));
+        stages.add(ctx -> new Document("$match",
+                new Document("$expr",
+                        new Document("$in", List.of("$statusHistory.status",
+                                List.of("DELIVERED", "PAID", "SUCCESS"))))));
+        stages.add(ctx -> new Document("$sort", new Document("statusHistory.changedAt", -1)));
+        stages.add(ctx -> new Document("$group",
+                new Document("_id", "$_id")
+                        .append("revenueAt",
+                                new Document("$first", "$statusHistory.changedAt"))
+                        .append("totalAmount", new Document("$first", "$totalAmount"))));
+        stages.add(ctx -> new Document("$match",
+                new Document("revenueAt",
+                        new Document("$gte", startInstant)
+                                .append("$lt", endInstant))));
         stages.add(ctx -> new Document("$group",
                 new Document("_id",
                         new Document("$dateToString",
                                 new Document("format", "%Y-%m-%d")
-                                        .append("date", "$createdAt")
+                                        .append("date", "$revenueAt")
                                         .append("timezone", "UTC")))
                         .append("revenue",
                                 new Document("$sum", "$totalAmount"))));
