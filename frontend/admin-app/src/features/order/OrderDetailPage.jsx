@@ -15,6 +15,7 @@ import {
 import { formatCurrency, formatDateTime } from '../../utils/format.js';
 import { can } from '../../utils/permissions.js';
 import ReceiveReturnModal from './ReceiveReturnModal.jsx';
+import PrintDeliveryNoteModal from './PrintDeliveryNoteModal.jsx';
 import './OrderDetailPage.css';
 
 /**
@@ -66,6 +67,7 @@ export default function OrderDetailPage() {
     const [error, setError] = useState(null);
     const [acting, setActing] = useState(false);
     const [showReceiveReturn, setShowReceiveReturn] = useState(false);
+    const [showPrintNote, setShowPrintNote] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -241,6 +243,12 @@ export default function OrderDetailPage() {
                             >
                                 📦 Gửi qua Warehouse
                             </Button>
+                            <Button
+                                variant="ghost"
+                                onClick={() => setShowPrintNote(true)}
+                            >
+                                🖨️ In phiếu giao hàng
+                            </Button>
                         </div>
                     </section>
                 )}
@@ -259,6 +267,12 @@ export default function OrderDetailPage() {
                                 onClick={handleMarkPrepared}
                             >
                                 ✅ Đã chuẩn bị xong
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                onClick={() => setShowPrintNote(true)}
+                            >
+                                🖨️ In phiếu giao hàng
                             </Button>
                         </div>
                     </section>
@@ -282,6 +296,12 @@ export default function OrderDetailPage() {
                                 onClick={handleReceiveReturn}
                             >
                                 📥 Nhận lại hàng từ NVGH
+                            </Button>
+                            <Button
+                                variant="ghost"
+                                onClick={() => setShowPrintNote(true)}
+                            >
+                                🖨️ In phiếu giao hàng
                             </Button>
                         </div>
                     </section>
@@ -433,6 +453,20 @@ export default function OrderDetailPage() {
                     </div>
                 </section>
 
+                {/* Print delivery note — available from CONFIRMED onward
+                    (i.e. once the order has been handed to warehouse for packing).
+                    PENDING orders have no shipping address confirmed yet. */}
+                {['CONFIRMED', 'PROCESSING', 'SHIPPING', 'DELIVERED'].includes(order.status) && (
+                    <Button
+                        variant="ghost"
+                        fullWidth
+                        onClick={() => setShowPrintNote(true)}
+                        style={{ marginBottom: 8 }}
+                    >
+                        🖨️ In phiếu giao hàng
+                    </Button>
+                )}
+
                 <Button variant="ghost" fullWidth onClick={() => navigate('/orders')}>← Quay lại danh sách</Button>
             </aside>
 
@@ -443,6 +477,13 @@ export default function OrderDetailPage() {
                     order={order}
                     onClose={() => setShowReceiveReturn(false)}
                     onConfirm={handleReceiveReturnConfirm}
+                />
+            )}
+
+            {showPrintNote && order && (
+                <PrintDeliveryNoteModal
+                    order={order}
+                    onClose={() => setShowPrintNote(false)}
                 />
             )}
         </div>

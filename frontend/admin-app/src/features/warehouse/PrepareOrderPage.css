@@ -245,6 +245,12 @@
     color: #475569;
 }
 
+.order-card__actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 /* ── address-card (shared pattern) ─────────────────────────────────────── */
 .address-card {
     padding: 10px 14px;

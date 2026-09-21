@@ -6,6 +6,7 @@ import { adminOrdersApi } from '../../services/apiAdminOrders.js';
 import { Button } from '../../components/index.js';
 import { statusLabel } from '../../utils/orderMeta.js';
 import { formatCurrency, formatDateTime } from '../../utils/format.js';
+import PrintDeliveryNoteModal from '../order/PrintDeliveryNoteModal.jsx';
 import './PrepareOrderPage.css';
 
 const PAGE_SIZE = 20;
@@ -33,6 +34,7 @@ export default function PrepareOrderPage() {
     const [page, setPage] = useState(0);
     const [totalPages, setTotalPages] = useState(0);
     const [markingId, setMarkingId] = useState(null);
+    const [printOrder, setPrintOrder] = useState(null);
 
     // ── WebSocket ───────────────────────────────────────────────────────────
     const { socket, connected } = useRealtime(true);
@@ -142,6 +144,7 @@ export default function PrepareOrderPage() {
                             order={order}
                             markingId={markingId}
                             onMarkPrepared={handleMarkPrepared}
+                            onPrint={setPrintOrder}
                         />
                     ))}
                 </div>
@@ -166,11 +169,18 @@ export default function PrepareOrderPage() {
                     </Button>
                 </div>
             )}
+
+            {printOrder && (
+                <PrintDeliveryNoteModal
+                    order={printOrder}
+                    onClose={() => setPrintOrder(null)}
+                />
+            )}
         </div>
     );
 }
 
-function OrderCard({ order, markingId, onMarkPrepared }) {
+function OrderCard({ order, markingId, onMarkPrepared, onPrint }) {
     const isMarking = markingId === order.id;
     const isNew = order._isNew;
 
@@ -232,13 +242,21 @@ function OrderCard({ order, markingId, onMarkPrepared }) {
                 <div className="order-card__total">
                     Tổng: <strong>{formatCurrency(order.totalAmount)}</strong>
                 </div>
-                <Button
-                    variant="primary"
-                    disabled={isMarking}
-                    onClick={() => onMarkPrepared(order.id)}
-                >
-                    {isMarking ? 'Đang xử lý...' : '✓ Đã chuẩn bị xong'}
-                </Button>
+                <div className="order-card__actions">
+                    <Button
+                        variant="ghost"
+                        onClick={() => onPrint?.(order)}
+                    >
+                        🖨️ In phiếu
+                    </Button>
+                    <Button
+                        variant="primary"
+                        disabled={isMarking}
+                        onClick={() => onMarkPrepared(order.id)}
+                    >
+                        {isMarking ? 'Đang xử lý...' : '✓ Đã chuẩn bị xong'}
+                    </Button>
+                </div>
             </div>
         </div>
     );
