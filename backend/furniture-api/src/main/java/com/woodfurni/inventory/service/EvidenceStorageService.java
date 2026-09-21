@@ -151,23 +151,36 @@ public class EvidenceStorageService {
             return null;
         }
 
-        GridFSFile file = gridFsTemplate.findOne(
-                new org.springframework.data.mongodb.core.query.Query(
-                        org.springframework.data.mongodb.core.query.Criteria.where("_id").is(fileId)
-                )
-        );
+        try {
+            GridFSFile file = gridFsTemplate.findOne(
+                    new org.springframework.data.mongodb.core.query.Query(
+                            org.springframework.data.mongodb.core.query.Criteria.where("_id").is(fileId)
+                    )
+            );
+            if (file == null) {
+                log.warn("[EvidenceStorageService] Evidence file not found in GridFS for id={}", idStr);
+                return null;
+            }
 
-        if (file == null) {
-            log.warn("[EvidenceStorageService] Evidence file not found in GridFS for id={}", idStr);
+            // Get stored name from GridFS metadata (files are stored with UUID names,
+            // e.g. "a1b2c3d4e5f6.xlsx"). getResource(filename) is reliable; the
+            // GridFSFile-based overload is broken / removed in Spring Data MongoDB 4.x.
+            org.bson.Document meta = file.getMetadata();
+            String storedName = (meta != null && meta.getString("storedName") != null)
+                    ? meta.getString("storedName")
+                    : file.getFilename(); // fallback
+
+            GridFsResource resource = gridFsTemplate.getResource(storedName);
+            if (!resource.exists()) {
+                log.warn("[EvidenceStorageService] GridFS resource does not exist for id={}", idStr);
+                return null;
+            }
+            return resource;
+        } catch (Exception ex) {
+            log.error("[EvidenceStorageService] Unexpected error resolving GridFS id={}: {}",
+                    idStr, ex.getMessage(), ex);
             return null;
         }
-
-        GridFsResource resource = gridFsTemplate.getResource(file);
-        if (!resource.exists()) {
-            log.warn("[EvidenceStorageService] GridFS resource does not exist for id={}", idStr);
-            return null;
-        }
-        return resource;
     }
 
     /**
