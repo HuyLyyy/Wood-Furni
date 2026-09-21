@@ -60,11 +60,13 @@ export async function downloadEvidenceFile(publicUrl, originalName) {
     //   /api/inventory/evidence/...
     //   /api/v1/inventory/evidence/...
     //   /inventory/evidence/...
-    if (url.includes('/inventory/evidence/')) {
-        // Strip any leading /api[/v1]/inventory prefix, then prepend /api/v1/inventory
-        url = url.replace(/\/api(\/v1)?\/inventory/, '')
-                 .replace(/^\/inventory/, '/inventory');
-        url = '/api/v1' + (url.startsWith('/') ? url : '/' + url);
+    //   /api/v1/evidence/...            (buggy legacy: just in case)
+    if (url.includes('/evidence/')) {
+        // Strip any leading /api[/v1] prefix, then rebuild as /api/v1/inventory/evidence/...
+        // We split at "/evidence/" and keep the suffix to preserve path params.
+        const idx = url.indexOf('/evidence/');
+        const suffix = url.substring(idx); // starts with "/evidence/..."
+        url = '/api/v1/inventory' + suffix;
     } else if (!url.startsWith('/api/v1/')) {
         url = '/api/v1' + (url.startsWith('/') ? url : '/' + url);
     }
