@@ -56,18 +56,24 @@ export async function downloadEvidenceFile(publicUrl, originalName) {
         url = publicUrl;
     }
 
-    // Normalise: any of these input forms must end up as /api/v1/inventory/...
-    //   /api/inventory/evidence/...
-    //   /api/v1/inventory/evidence/...
-    //   /inventory/evidence/...
-    //   /api/v1/evidence/...            (buggy legacy: just in case)
+    // Normalise: any of these input forms must end up as a relative path that,
+    // combined with apiClient.baseURL ("/api/v1"), produces the correct final URL.
+    //   /api/inventory/evidence/...        → /inventory/evidence/...
+    //   /api/v1/inventory/evidence/...     → /inventory/evidence/...   (strip prefix)
+    //   /inventory/evidence/...            → /inventory/evidence/...   (no prefix)
+    //
+    // CRITICAL: never return an absolute path starting with "/api/v1/" because
+    // apiClient.baseURL is already "/api/v1" — otherwise axios will concatenate
+    // to "/api/v1/api/v1/..." and the gateway returns 500.
     if (url.includes('/evidence/')) {
-        // Strip any leading /api[/v1] prefix, then rebuild as /api/v1/inventory/evidence/...
-        // We split at "/evidence/" and keep the suffix to preserve path params.
         const idx = url.indexOf('/evidence/');
-        const suffix = url.substring(idx); // starts with "/evidence/..."
-        url = '/api/v1/inventory' + suffix;
-    } else if (!url.startsWith('/api/v1/')) {
+        // suffix starts with "/evidence/" — keep everything from there.
+        url = url.substring(idx);
+    } else if (url.startsWith('/api/v1/')) {
+        url = url.substring('/api/v1'.length);
+    } else if (url.startsWith('/api/')) {
+        url = url.substring('/api'.length);
+    } else if (!url.startsWith('/api/v1')) {
         url = '/api/v1' + (url.startsWith('/') ? url : '/' + url);
     }
 
