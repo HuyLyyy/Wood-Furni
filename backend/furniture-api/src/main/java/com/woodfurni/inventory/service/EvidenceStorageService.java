@@ -1,15 +1,21 @@
 package com.woodfurni.inventory.service;
 
+import com.mongodb.client.gridfs.GridFSBucket;
+import com.mongodb.client.gridfs.GridFSBuckets;
+import com.mongodb.client.gridfs.GridFSDownloadStream;
 import com.mongodb.client.gridfs.model.GridFSFile;
 import lombok.extern.slf4j.Slf4j;
+import org.bson.Document;
 import org.bson.types.ObjectId;
+import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
-import org.springframework.data.mongodb.gridfs.GridFsResource;
 import org.springframework.data.mongodb.gridfs.GridFsTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -26,7 +32,7 @@ import java.util.UUID;
  *
  * Files are stored with metadata = { monthDir: "yyyy-MM", originalName, storedName }.
  * The public URL looks like /api/v1/inventory/evidence/{gridFsId} — the controller
- * resolves the GridFsResource from the id and streams it back.
+ * resolves the file from the id and streams it back.
  *
  * Validation rules (unchanged from local-disk version):
  *   - Only .xlsx / .xls accepted (extension check).
@@ -58,10 +64,22 @@ public class EvidenceStorageService {
             StoredFile storedFile
     ) {}
 
-    private final GridFsTemplate gridFsTemplate;
+    /**
+     * Result of resolving a GridFS file by id.
+     * @param content     raw bytes of the file (loaded into memory).
+     * @param originalName filename as originally uploaded by the user.
+     */
+    public record DownloadedFile(
+            byte[] content,
+            String originalName
+    ) {}
 
-    public EvidenceStorageService(GridFsTemplate gridFsTemplate) {
+    private final GridFsTemplate gridFsTemplate;
+    private final MongoTemplate mongoTemplate;
+
+    public EvidenceStorageService(GridFsTemplate gridFsTemplate, MongoTemplate mongoTemplate) {
         this.gridFsTemplate = gridFsTemplate;
+        this.mongoTemplate = mongoTemplate;
         log.info("[EvidenceStorageService] Initialised — using MongoDB GridFS for evidence storage");
     }
 
@@ -105,7 +123,7 @@ public class EvidenceStorageService {
                     file.getInputStream(),
                     storedName,
                     ct != null ? ct : "application/octet-stream",
-                    new org.bson.Document()
+                    new Document()
                             .append("monthDir", monthDir)
                             .append("originalName", original)
                             .append("storedName", storedName)
@@ -127,12 +145,13 @@ public class EvidenceStorageService {
     }
 
     /**
-     * Resolve a public URL back to a GridFsResource so the controller can stream it.
+     * Resolve a GridFS file by id and stream its bytes into memory.
+     * Returns null if the file is not found.
      *
      * @param publicPath  URL like "/api/v1/inventory/evidence/{gridFsId}"
-     * @return GridFsResource or null if not found / URL malformed.
+     * @return DownloadedFile or null if not found.
      */
-    public GridFsResource resolve(String publicPath) {
+    public DownloadedFile resolve(String publicPath) {
         if (publicPath == null) return null;
 
         int idx = publicPath.indexOf("/inventory/evidence/");
@@ -151,61 +170,61 @@ public class EvidenceStorageService {
             return null;
         }
 
-        try {
-            GridFSFile file = gridFsTemplate.findOne(
-                    new org.springframework.data.mongodb.core.query.Query(
-                            org.springframework.data.mongodb.core.query.Criteria.where("_id").is(fileId)
-                    )
-            );
-            if (file == null) {
-                log.warn("[EvidenceStorageService] Evidence file not found in GridFS for id={}", idStr);
-                return null;
-            }
-
-            // Get stored name from GridFS metadata (files are stored with UUID names,
-            // e.g. "a1b2c3d4e5f6.xlsx"). getResource(filename) is reliable; the
-            // GridFSFile-based overload is broken / removed in Spring Data MongoDB 4.x.
-            org.bson.Document meta = file.getMetadata();
-            String storedName = (meta != null && meta.getString("storedName") != null)
-                    ? meta.getString("storedName")
-                    : file.getFilename(); // fallback
-
-            GridFsResource resource = gridFsTemplate.getResource(storedName);
-            if (!resource.exists()) {
-                log.warn("[EvidenceStorageService] GridFS resource does not exist for id={}", idStr);
-                return null;
-            }
-            return resource;
-        } catch (Exception ex) {
-            log.error("[EvidenceStorageService] Unexpected error resolving GridFS id={}: {}",
-                    idStr, ex.getMessage(), ex);
-            return null;
-        }
+        return downloadById(fileId);
     }
 
     /**
-     * Look up the original (user-friendly) filename stored in GridFS metadata
-     * for a given gridFsId. Falls back to null if not found so caller can use
-     * the URL filename as a default.
+     * Low-level download using MongoDB GridFSBucket (direct driver API, bypassing
+     * Spring Data's broken getResource overload in Spring Data MongoDB 3.2.x).
      */
-    public String findOriginalNameById(String gridFsId) {
-        if (gridFsId == null || gridFsId.isBlank()) return null;
-        ObjectId fileId;
+    private DownloadedFile downloadById(ObjectId fileId) {
         try {
-            fileId = new ObjectId(gridFsId);
-        } catch (IllegalArgumentException ex) {
+            // Find the GridFS file metadata first to get originalName.
+            GridFSFile gridFsFile = gridFsTemplate.findOne(
+                    new Query(Criteria.where("_id").is(fileId))
+            );
+            if (gridFsFile == null) {
+                log.warn("[EvidenceStorageService] GridFS file not found for id={}", fileId);
+                return null;
+            }
+
+            String originalName = null;
+            Document meta = gridFsFile.getMetadata();
+            if (meta != null && meta.getString("originalName") != null) {
+                originalName = meta.getString("originalName");
+            }
+            if (originalName == null || originalName.isBlank()) {
+                originalName = gridFsFile.getFilename(); // fallback
+            }
+
+            // Use GridFSBucket for streaming — this is the official MongoDB driver API,
+            // unaffected by Spring Data MongoDB wrapper changes.
+            String bucketName = gridFsTemplate.getBucketName();
+            var db = mongoTemplate.getDb();
+            GridFSBucket bucket = GridFSBuckets.create(db, bucketName);
+
+            try (GridFSDownloadStream stream = bucket.openDownloadStream(fileId)) {
+                long length = stream.getGridFSFile().getLength();
+                if (length > MAX_BYTES) {
+                    log.warn("[EvidenceStorageService] File too large ({} bytes) for id={}", length, fileId);
+                    return null;
+                }
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                byte[] buf = new byte[8192];
+                int read;
+                while ((read = stream.read(buf)) != -1) {
+                    baos.write(buf, 0, read);
+                }
+                byte[] bytes = baos.toByteArray();
+                log.info("[EvidenceStorageService] Downloaded id={} ({} bytes) as '{}'",
+                        fileId, bytes.length, originalName);
+                return new DownloadedFile(bytes, originalName);
+            }
+        } catch (Exception ex) {
+            log.error("[EvidenceStorageService] Unexpected error downloading id={}: {}",
+                    fileId, ex.getMessage(), ex);
             return null;
         }
-        GridFSFile file = gridFsTemplate.findOne(
-                new org.springframework.data.mongodb.core.query.Query(
-                        org.springframework.data.mongodb.core.query.Criteria.where("_id").is(fileId)
-                )
-        );
-        if (file == null) return null;
-        org.bson.Document meta = file.getMetadata();
-        if (meta == null) return null;
-        Object name = meta.get("originalName");
-        return name instanceof String s && !s.isBlank() ? s : null;
     }
 
     private static String extractExtension(String name) {

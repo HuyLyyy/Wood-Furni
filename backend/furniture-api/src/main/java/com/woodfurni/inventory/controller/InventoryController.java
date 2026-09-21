@@ -18,7 +18,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.springframework.core.io.Resource;
-import org.springframework.data.mongodb.gridfs.GridFsResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -150,18 +149,16 @@ public class InventoryController {
     }
 
     private ResponseEntity<Resource> serveEvidence(String id, String yearMonth, String filename) {
-        GridFsResource resource;
-        String originalName;
+        EvidenceStorageService.DownloadedFile downloaded;
 
         if (id != null) {
             // ── New format: /evidence/{gridFsId} ──────────────────────────
             String publicPath = "/api/v1/inventory/evidence/" + id;
-            resource = evidenceStorageService.resolve(publicPath);
-            if (resource == null) {
+            downloaded = evidenceStorageService.resolve(publicPath);
+            if (downloaded == null) {
                 log.warn("[downloadEvidence] File not found in GridFS for id={}", id);
                 return ResponseEntity.notFound().build();
             }
-            originalName = evidenceStorageService.findOriginalNameById(id);
         } else {
             // ── Legacy format: /evidence/{yearMonth}/{filename} ───────────
             // File is gone (Render ephemeral disk) — nothing we can do.
@@ -173,6 +170,7 @@ public class InventoryController {
             return ResponseEntity.notFound().build();
         }
 
+        String originalName = downloaded.originalName();
         if (originalName == null || originalName.isBlank()) {
             originalName = "minh-chung.xlsx";
         }
@@ -189,6 +187,10 @@ public class InventoryController {
                 ? MediaType.parseMediaType("application/vnd.ms-excel")
                 : MediaType.parseMediaType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+        // Wrap the byte[] from GridFSBucket in a Spring ByteArrayResource.
+        org.springframework.core.io.ByteArrayResource resource =
+                new org.springframework.core.io.ByteArrayResource(downloaded.content());
 
         return ResponseEntity.ok()
                 .contentType(contentType)
