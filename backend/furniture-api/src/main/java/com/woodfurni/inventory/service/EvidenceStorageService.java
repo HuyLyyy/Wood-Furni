@@ -190,7 +190,18 @@ public class EvidenceStorageService {
             log.warn("[EvidenceStorageService] Path traversal attempt blocked: {}", publicPath);
             return null;
         }
-        return Files.exists(candidate) ? candidate : null;
+
+        if (!Files.exists(candidate)) {
+            // Log at WARN so Render Dashboard → Logs shows the cause clearly.
+            // baseDir is the ephemeral /tmp dir by default → file is lost on
+            // every deploy until EVIDENCE_STORAGE_DIR is configured.
+            log.warn("[EvidenceStorageService] Evidence file missing on disk: path={} baseDir={} " +
+                    "(if baseDir is /tmp, the file was lost after a Render deploy — " +
+                    "configure EVIDENCE_STORAGE_DIR to point at a persistent disk)",
+                    candidate, baseDir.toAbsolutePath());
+            return null;
+        }
+        return candidate;
     }
 
     private static String extractExtension(String name) {

@@ -80,13 +80,20 @@ export async function downloadEvidenceFile(publicUrl, originalName) {
     // not as an Excel blob. axios with responseType:'blob' still gives us
     // the raw blob, so sniff the type and surface the message.
     const blob = response.data;
-    if (blob instanceof Blob && blob.type && blob.type.startsWith('application/json')) {
+    if (blob instanceof Blob && blob.type && (blob.type.startsWith('application/json') || blob.type.startsWith('text/html'))) {
         const text = await blob.text();
         let msg = 'Không thể tải minh chứng';
         try {
+            // Spring Boot Whitelabel error page OR our ApiResponse JSON.
+            // Try JSON first.
             const parsed = JSON.parse(text);
             if (parsed && parsed.message) msg = parsed.message;
-        } catch { /* keep generic */ }
+        } catch {
+            // Not JSON — fall back to generic + status.
+            const status = response.status;
+            if (status === 404) msg = 'File minh chứng không còn tồn tại trên server (có thể đã bị xóa sau khi redeploy). Vui lòng upload lại file điều chỉnh.';
+            else msg = `Lỗi tải minh chứng (HTTP ${status})`;
+        }
         throw new Error(msg);
     }
 
