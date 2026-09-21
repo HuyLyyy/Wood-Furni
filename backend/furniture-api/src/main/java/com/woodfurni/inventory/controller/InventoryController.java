@@ -20,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -28,11 +29,14 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+
 import java.nio.file.Path;
 
 @RestController
 @RequestMapping("/inventory")
 @RequiredArgsConstructor
+@Slf4j
 @Tag(name = "Inventory", description = "Stock and inventory management")
 @SecurityRequirement(name = "bearerAuth")
 public class InventoryController {
@@ -129,34 +133,45 @@ public class InventoryController {
             @PathVariable String filename) {
         String publicPath = "/api/inventory/evidence/" + yearMonth + "/" + filename;
         Path absolute = evidenceStorageService.resolve(publicPath);
+
         if (absolute == null) {
+            log.warn("[downloadEvidence] File not found on disk: {}", publicPath);
             return ResponseEntity.notFound().build();
         }
 
-        // Look up the history record to get the user-friendly original name.
-        String originalName = inventoryService.findOriginalNameByStoredFile(filename)
-                .orElse(filename);
+        Resource resource = null;
+        try {
+            // Look up the history record to get the user-friendly original name.
+            String originalName = inventoryService.findOriginalNameByStoredFile(filename)
+                    .orElse(filename);
 
-        // Sanitise for Content-Disposition header (ASCII fallback for non-ASCII).
-        String safeAscii = originalName.replaceAll("[^\\x20-\\x7E]", "_");
-        String contentDisposition =
-                "attachment; filename=\"" + safeAscii + "\"; "
-              + "filename*=UTF-8''" + java.net.URLEncoder.encode(originalName, java.nio.charset.StandardCharsets.UTF_8);
+            // Sanitise for Content-Disposition header (ASCII fallback for non-ASCII).
+            String safeAscii = originalName.replaceAll("[^\\x20-\\x7E]", "_");
+            String contentDisposition =
+                    "attachment; filename=\"" + safeAscii + "\"; "
+                  + "filename*=UTF-8''" + java.net.URLEncoder.encode(originalName, java.nio.charset.StandardCharsets.UTF_8);
 
-        // Pick content type by the actual on-disk extension (filename param
-        // is the UUID we stored, so use that for the sniff).
-        String lower = filename.toLowerCase();
-        MediaType contentType = lower.endsWith(".xls")
-                ? MediaType.parseMediaType("application/vnd.ms-excel")
-                : MediaType.parseMediaType(
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            // Pick content type by the actual on-disk extension (filename param
+            // is the UUID we stored, so use that for the sniff).
+            String lower = filename.toLowerCase();
+            MediaType contentType = lower.endsWith(".xls")
+                    ? MediaType.parseMediaType("application/vnd.ms-excel")
+                    : MediaType.parseMediaType(
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
-        Resource resource = new FileSystemResource(absolute);
-        return ResponseEntity.ok()
-                .contentType(contentType)
-                .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition)
-                // Some Excel viewers need a length hint; FileSystemResource sets Content-Length itself.
-                .body(resource);
+            resource = new FileSystemResource(absolute);
+            return ResponseEntity.ok()
+                    .contentType(contentType)
+                    .header(HttpHeaders.CONTENT_DISPOSITION, contentDisposition)
+                    .body(resource);
+        } catch (Exception ex) {
+            log.error("[downloadEvidence] Failed to serve evidence file: path={} originalFilename={}",
+                    absolute, filename, ex);
+            if (resource != null && resource.isReadable()) {
+                try { resource.getInputStream().close(); } catch (IOException ignored) {}
+            }
+            return ResponseEntity.internalServerError().build();
+        }
     }
 
     @GetMapping("/{productId}/history")
