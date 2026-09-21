@@ -157,7 +157,11 @@ public class EvidenceStorageService {
                     "Không thể lưu file minh chứng '" + original + "': " + e.getMessage(), e);
         }
 
-        String publicUrl = "/api/inventory/evidence/" + monthDir + "/" + storedName;
+        // Public URL = context-path + /inventory/evidence/yyyy-MM/uuid.xlsx
+        // Render the URL as a full path including the Spring context-path (/api/v1)
+        // so the frontend never has to guess where the rewrite boundary is
+        // (avoids 403 when the frontend strips /v1 incorrectly).
+        String publicUrl = "/api/v1/inventory/evidence/" + monthDir + "/" + storedName;
         log.info("[EvidenceStorageService] Saved '{}' → {} ({} bytes) as {}",
                 original, target, file.getSize(), storedName);
 

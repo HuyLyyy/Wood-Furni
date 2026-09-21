@@ -37,16 +37,44 @@ const unwrap = (r) => r.data.data;
 export async function downloadEvidenceFile(publicUrl, originalName) {
     if (!publicUrl) throw new Error('URL minh chứng không hợp lệ');
 
-    // Ensure we hit the Spring Boot gateway, not the SPA fallback.
-    // publicUrl may be "/api/inventory/evidence/..." or already include "/api/v1".
-    let url = publicUrl;
-    if (url.startsWith('/api/inventory/')) {
-        url = '/api/v1/inventory/' + url.slice('/api/inventory/'.length);
-    } else if (!url.startsWith('/api/v1/') && !url.startsWith('http')) {
+    // Always hit the Spring Boot context-path /api/v1/inventory/...
+    // regardless of whether publicUrl is relative ("/api/inventory/..."),
+    // already-prefixed ("/api/v1/inventory/..."), or absolute.
+    let url;
+    if (/^https?:\/\//i.test(publicUrl)) {
+        // Absolute URL — swap hostname for current origin isn't needed; axios
+        // will resolve relative to apiClient.baseURL anyway. Convert to a
+        // path by taking the pathname + search so the Authorization header
+        // and baseURL prefix logic still applies.
+        try {
+            const u = new URL(publicUrl);
+            url = u.pathname + u.search;
+        } catch {
+            url = publicUrl;
+        }
+    } else {
+        url = publicUrl;
+    }
+
+    // Normalise: any of these input forms must end up as /api/v1/inventory/...
+    //   /api/inventory/evidence/...
+    //   /api/v1/inventory/evidence/...
+    //   /inventory/evidence/...
+    if (url.includes('/inventory/evidence/')) {
+        // Strip any leading /api[/v1]/inventory prefix, then prepend /api/v1/inventory
+        url = url.replace(/\/api(\/v1)?\/inventory/, '')
+                 .replace(/^\/inventory/, '/inventory');
+        url = '/api/v1' + (url.startsWith('/') ? url : '/' + url);
+    } else if (!url.startsWith('/api/v1/')) {
         url = '/api/v1' + (url.startsWith('/') ? url : '/' + url);
     }
 
-    const response = await apiClient.get(url, { responseType: 'blob' });
+    const response = await apiClient.get(url, {
+        responseType: 'blob',
+        // Don't let axios sniff and downgrade the Content-Type — for binary
+        // downloads we want the raw response.
+        transformResponse: [(data) => data],
+    });
 
     // Server-side errors arrive as {success:false, message:"..."} JSON,
     // not as an Excel blob. axios with responseType:'blob' still gives us
