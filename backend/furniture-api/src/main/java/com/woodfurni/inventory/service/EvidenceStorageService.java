@@ -99,13 +99,6 @@ public class EvidenceStorageService {
         String monthDir = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM"));
         String storedName = UUID.randomUUID().toString().replace("-", "") + ext;
 
-        // Store with metadata for future introspection (e.g. cleanup by monthDir).
-        org.springframework.data.mongodb.core.query.Query storeQuery =
-                org.springframework.data.mongodb.gridfs.GridFsQuery.query(
-                        org.springframework.data.mongodb.core.query.Criteria.where("monthDir").is(monthDir)
-                                .and("storedName").is(storedName)
-                );
-
         ObjectId fileId;
         try {
             fileId = gridFsTemplate.store(
