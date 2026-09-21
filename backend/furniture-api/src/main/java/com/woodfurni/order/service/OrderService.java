@@ -1378,6 +1378,7 @@ public class OrderService {
                 .orderNumber(order.getOrderNumber())
                 .customerId(order.getCustomerId())
                 .customerCode(resolveCustomerCode(order.getCustomerId()))
+                .customerName(resolveCustomerName(order.getCustomerId()))
                 .items(order.getItems())
                 .shippingAddress(order.getShippingAddress())
                 .promotionCode(order.getPromotionCode())
@@ -1420,6 +1421,24 @@ public class OrderService {
             return null;
         } catch (Exception ex) {
             log.debug("Failed to resolve customerCode for {}: {}", customerId, ex.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Resolves the customer's full name from their user record.
+     * Returns null if the user cannot be found (e.g. deleted account).
+     */
+    private String resolveCustomerName(String customerId) {
+        if (customerId == null || customerId.isBlank()) {
+            return null;
+        }
+        try {
+            return userRepository.findById(customerId)
+                    .map(User::getFullName)
+                    .orElse(null);
+        } catch (Exception ex) {
+            log.debug("Failed to resolve customerName for {}: {}", customerId, ex.getMessage());
             return null;
         }
     }

@@ -26,6 +26,7 @@ public class OrderResponse {
     private String orderNumber;
     private String customerId;
     private String customerCode;
+    private String customerName;
     private List<OrderItem> items;
     private ShippingAddress shippingAddress;
     private String promotionCode;
