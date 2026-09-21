@@ -1,0 +1,37 @@
+# render.yaml — furniture-api web service
+#
+# Render uses this file to configure the web service deployment.
+#
+# Key settings to fix "port scan timeout":
+#   - healthCheckPath: Render does an HTTP GET instead of raw TCP port scan.
+#     Spring Boot's /actuator/health returns 200 once the app is fully started
+#     (MongoDB connected, indexes created), so Render waits patiently.
+#   - startupTimeout: 300s (5 min) gives Spring Boot time to boot on Free Tier VMs.
+#     Without this, Render gives up after ~30s and reports "no open ports".
+#   - env: PORT is set by Render; Spring Boot reads it via application.yml.
+
+services:
+  - type: web
+    name: furniture-api
+    env: docker
+    dockerfilePath: backend/furniture-api/Dockerfile
+
+    # Wait for Spring Boot to finish booting (MongoDB connect, index creation).
+    # Without this, Render does a raw TCP port probe which times out because
+    # Spring Boot hasn't opened the socket yet.
+    healthCheckPath: /api/v1/actuator/health
+    healthCheckInterval: 15
+    startupTimeout: 300
+
+    instances: 1
+    region: singapore
+
+    envVars:
+      # JAVA_OPTS: pass PORT so Spring Boot binds to the correct socket.
+      # Render's infrastructure maps external :10000 → container :8080.
+      # Spring Boot reads PORT env via: server.port: ${PORT:${SERVER_PORT:8080}}
+      - key: JAVA_OPTS
+        value: >-
+          -XX:+UseContainerSupport
+          -XX:MaxRAMPercentage=75.0
+          -Dserver.port=${PORT:-8080}
