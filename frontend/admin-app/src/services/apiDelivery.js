@@ -40,7 +40,4 @@ export const deliveryApi = {
 export const userApi = {
     listDrivers: () =>
         apiClient.get('/users/drivers').then(unwrap),
-
-    listAssemblers: () =>
-        apiClient.get('/users/assemblers').then(unwrap),
 };

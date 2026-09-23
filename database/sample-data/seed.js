@@ -180,6 +180,16 @@ const userContentId = ObjectId();
 const userCustomer1Id = ObjectId();
 const userCustomer2Id = ObjectId();
 
+// 8 Driver/Assembler users
+const userDriver1Id = ObjectId();
+const userDriver2Id = ObjectId();
+const userDriver3Id = ObjectId();
+const userAssembler1Id = ObjectId();
+const userAssembler2Id = ObjectId();
+const userAssembler3Id = ObjectId();
+const userAssembler4Id = ObjectId();
+const userAssembler5Id = ObjectId();
+
 const cust1AddrId = 'addr-c1-default';
 const cust1Addr2Id = 'addr-c1-office';
 const cust2AddrId = 'addr-c2-default';
@@ -288,6 +298,104 @@ dbHandle.users.insertMany([
     status: 'ACTIVE',
     createdAt: daysAgo(15),
     updatedAt: daysAgo(15),
+  },
+  // ── 3 DRIVERS ──────────────────────────────────────────────────────────
+  {
+    _id: userDriver1Id,
+    email: 'driver1@woodfurni.vn',
+    passwordHash: '$2b$10$xMDF/ktGpyrN0cHJQFSp/.IGw5d/cWrcCWEi8mix3IJBE1lR6VCFy', // Driver1@123
+    fullName: 'Phạm Văn Lái',
+    phone: '0911111111',
+    role: 'DRIVER',
+    addresses: [],
+    status: 'ACTIVE',
+    createdAt: daysAgo(30),
+    updatedAt: daysAgo(30),
+  },
+  {
+    _id: userDriver2Id,
+    email: 'driver2@woodfurni.vn',
+    passwordHash: '$2b$10$xMDF/ktGpyrN0cHJQFSp/.IGw5d/cWrcCWEi8mix3IJBE1lR6VCFy', // Driver2@123
+    fullName: 'Ngô Thanh Tài',
+    phone: '0922222222',
+    role: 'DRIVER',
+    addresses: [],
+    status: 'ACTIVE',
+    createdAt: daysAgo(30),
+    updatedAt: daysAgo(30),
+  },
+  {
+    _id: userDriver3Id,
+    email: 'driver3@woodfurni.vn',
+    passwordHash: '$2b$10$xMDF/ktGpyrN0cHJQFSp/.IGw5d/cWrcCWEi8mix3IJBE1lR6VCFy', // Driver3@123
+    fullName: 'Đặng Minh Xe',
+    phone: '0933333333',
+    role: 'DRIVER',
+    addresses: [],
+    status: 'ACTIVE',
+    createdAt: daysAgo(30),
+    updatedAt: daysAgo(30),
+  },
+  // ── 5 ASSEMBLERS ────────────────────────────────────────────────────────
+  {
+    _id: userAssembler1Id,
+    email: 'assembler1@woodfurni.vn',
+    passwordHash: '$2b$10$xMDF/ktGpyrN0cHJQFSp/.IGw5d/cWrcCWEi8mix3IJBE1lR6VCFy', // Assembler1@123
+    fullName: 'Trần Văn Ráp',
+    phone: '0944444444',
+    role: 'ASSEMBLER',
+    addresses: [],
+    status: 'ACTIVE',
+    createdAt: daysAgo(30),
+    updatedAt: daysAgo(30),
+  },
+  {
+    _id: userAssembler2Id,
+    email: 'assembler2@woodfurni.vn',
+    passwordHash: '$2b$10$xMDF/ktGpyrN0cHJQFSp/.IGw5d/cWrcCWEi8mix3IJBE1lR6VCFy', // Assembler2@123
+    fullName: 'Lê Thị Lắp',
+    phone: '0955555555',
+    role: 'ASSEMBLER',
+    addresses: [],
+    status: 'ACTIVE',
+    createdAt: daysAgo(30),
+    updatedAt: daysAgo(30),
+  },
+  {
+    _id: userAssembler3Id,
+    email: 'assembler3@woodfurni.vn',
+    passwordHash: '$2b$10$xMDF/ktGpyrN0cHJQFSp/.IGw5d/cWrcCWEi8mix3IJBE1lR6VCFy', // Assembler3@123
+    fullName: 'Huỳnh Công Mont',
+    phone: '0966666666',
+    role: 'ASSEMBLER',
+    addresses: [],
+    status: 'ACTIVE',
+    createdAt: daysAgo(30),
+    updatedAt: daysAgo(30),
+  },
+  {
+    _id: userAssembler4Id,
+    email: 'assembler4@woodfurni.vn',
+    passwordHash: '$2b$10$xMDF/ktGpyrN0cHJQFSp/.IGw5d/cWrcCWEi8mix3IJBE1lR6VCFy', // Assembler4@123
+    fullName: 'Võ Thị Ghép',
+    phone: '0977777777',
+    role: 'ASSEMBLER',
+    addresses: [],
+    status: 'ACTIVE',
+    createdAt: daysAgo(30),
+    updatedAt: daysAgo(30),
+  },
+  {
+    _id: userAssembler5Id,
+    email: 'assembler5@woodfurni.vn',
+    passwordHash: '$2b$10$xMDF/ktGpyrN0cHJQFSp/.IGw5d/cWrcCWEi8mix3IJBE1lR6VCFy', // Assembler5@123
+    fullName: 'Đỗ Văn Nối',
+    phone: '0988888888',
+    role: 'ASSEMBLER',
+    addresses: [],
+    status: 'ACTIVE',
+    createdAt: daysAgo(30),
+    updatedAt: daysAgo(30),
   },
 ]);
 
@@ -1140,9 +1248,19 @@ print('    reviews:      ' + dbHandle.reviews.countDocuments({}));
 print('    notifications:' + dbHandle.notifications.countDocuments({}));
 print('');
 print('Demo accounts (email / password):');
-print('  ADMIN     admin@woodfurni.vn     / Admin@123');
-print('  SALES     sales@woodfurni.vn     / Sales@123');
-print('  WAREHOUSE warehouse@woodfurni.vn / Warehouse@123');
-print('  CONTENT   content@woodfurni.vn   / Content@123');
-print('  CUSTOMER  customer1@woodfurni.vn / Customer1@123');
-print('  CUSTOMER  customer2@woodfurni.vn / Customer2@123');
+print('  ADMIN     admin@woodfurni.vn       / Admin@123');
+print('  SALES     sales@woodfurni.vn       / Sales@123');
+print('  WAREHOUSE warehouse@woodfurni.vn   / Warehouse@123');
+print('  CONTENT   content@woodfurni.vn     / Content@123');
+print('  CUSTOMER  customer1@woodfurni.vn    / Customer1@123');
+print('  CUSTOMER  customer2@woodfurni.vn   / Customer2@123');
+print('');
+print('Delivery staff (login để test tạo chuyến xe):');
+print('  DRIVER    driver1@woodfurni.vn     / Driver1@123');
+print('  DRIVER    driver2@woodfurni.vn     / Driver2@123');
+print('  DRIVER    driver3@woodfurni.vn     / Driver3@123');
+print('  ASSEMBLER assembler1@woodfurni.vn  / Assembler1@123');
+print('  ASSEMBLER assembler2@woodfurni.vn  / Assembler2@123');
+print('  ASSEMBLER assembler3@woodfurni.vn  / Assembler3@123');
+print('  ASSEMBLER assembler4@woodfurni.vn  / Assembler4@123');
+print('  ASSEMBLER assembler5@woodfurni.vn  / Assembler5@123');

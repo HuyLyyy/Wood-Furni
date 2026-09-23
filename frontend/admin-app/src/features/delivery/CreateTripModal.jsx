@@ -158,37 +158,35 @@ export default function CreateTripModal({ onClose, onDone }) {
 
     const canProceed2 = selectedVehicle && capacityResult?.fits === true;
 
-    // ── Step 3: driver ────────────────────────────────────────────────────────
+    // ── Step 3: driver + assemblers ────────────────────────────────────────
     const [drivers, setDrivers] = useState([]);
     const [assemblers, setAssemblers] = useState([]);
     const [selectedDriverId, setSelectedDriverId] = useState('');
     const [selectedAssemblerIds, setSelectedAssemblerIds] = useState(new Set());
     const [loadingDrivers, setLoadingDrivers] = useState(true);
-    const [loadingAssemblers, setLoadingAssemblers] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
 
     useEffect(() => {
-        userApi.listDrivers()
-            .then(setDrivers)
-            .catch(() => toast.error('Không thể tải danh sách tài xế'))
+        Promise.all([
+            userApi.listDrivers(),
+            userApi.listAssemblers(),
+        ])
+            .then(([driverList, assemblerList]) => {
+                setDrivers(driverList || []);
+                setAssemblers(assemblerList || []);
+            })
+            .catch(() => toast.error('Không thể tải danh sách tài xế / lắp ráp'))
             .finally(() => setLoadingDrivers(false));
     }, []);
 
-    useEffect(() => {
-        userApi.listAssemblers()
-            .then(setAssemblers)
-            .catch(() => toast.error('Không thể tải danh sách nhân viên lắp ráp'))
-            .finally(() => setLoadingAssemblers(false));
-    }, []);
-
-    const toggleAssembler = (id) => {
+    const toggleAssembler = (assemblerId) => {
         setSelectedAssemblerIds(prev => {
             const next = new Set(prev);
-            if (next.has(id)) {
-                next.delete(id);
+            if (next.has(assemblerId)) {
+                next.delete(assemblerId);
             } else if (next.size < 2) {
-                next.add(id);
+                next.add(assemblerId);
             }
             return next;
         });
@@ -434,20 +432,20 @@ export default function CreateTripModal({ onClose, onDone }) {
                     <div className="step3-section">
                         <div className="step3-section-label">
                             Chọn nhân viên lắp ráp (tối đa 2 người)
-                            <span className="step3-section-hint">Có thể chọn 0, 1 hoặc 2 người đi cùng chuyến xe</span>
                         </div>
-                        {loadingAssemblers && <p className="step-loading">Đang tải danh sách nhân viên lắp ráp…</p>}
-                        {!loadingAssemblers && assemblers.length === 0 && (
+                        {loadingDrivers && <p className="step-loading">Đang tải danh sách lắp ráp…</p>}
+                        {!loadingDrivers && assemblers.length === 0 && (
                             <p className="step-empty">
                                 Chưa có nhân viên lắp ráp nào.
                             </p>
                         )}
-                        {!loadingAssemblers && assemblers.length > 0 && (
-                            <div className="assembler-list">
+                        {!loadingDrivers && assemblers.length > 0 && (
+                            <div className="driver-list">
                                 {assemblers.map(a => (
                                     <label
                                         key={a.id}
-                                        className={`assembler-item ${selectedAssemblerIds.has(a.id) ? 'is-selected' : ''}`}
+                                        className={`driver-item ${selectedAssemblerIds.has(a.id) ? 'is-selected' : ''}`}
+                                        style={{ opacity: !selectedAssemblerIds.has(a.id) && selectedAssemblerIds.size >= 2 ? 0.5 : 1 }}
                                     >
                                         <input
                                             type="checkbox"
@@ -455,13 +453,18 @@ export default function CreateTripModal({ onClose, onDone }) {
                                             onChange={() => toggleAssembler(a.id)}
                                             disabled={!selectedAssemblerIds.has(a.id) && selectedAssemblerIds.size >= 2}
                                         />
-                                        <div className="assembler-item__inner">
+                                        <div className="driver-item__inner">
                                             <strong>{a.fullName}</strong>
                                             <span>{a.phone || a.email}</span>
                                         </div>
                                     </label>
                                 ))}
                             </div>
+                        )}
+                        {selectedAssemblerIds.size > 0 && (
+                            <p className="step-hint">
+                                Đã chọn {selectedAssemblerIds.size}/2 nhân viên lắp ráp
+                            </p>
                         )}
                     </div>
 
