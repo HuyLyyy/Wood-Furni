@@ -1,9 +1,11 @@
 package com.woodfurni.auth.repository;
 
+import com.woodfurni.auth.enums.Role;
 import com.woodfurni.auth.model.User;
 import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -32,4 +34,10 @@ public interface UserRepository extends MongoRepository<User, String> {
      * Check if a user exists with the given email.
      */
     boolean existsByEmail(String email);
+
+    /**
+     * List tất cả users có role cho trước (ví dụ DRIVER) — dùng cho module
+     * Chuyến xe khi cần dropdown chọn tài xế.
+     */
+    List<User> findByRole(Role role);
 }

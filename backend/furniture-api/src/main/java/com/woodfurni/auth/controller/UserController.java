@@ -1,10 +1,14 @@
 package com.woodfurni.auth.controller;
 
 import com.woodfurni.auth.dto.AddressRequest;
+import com.woodfurni.auth.enums.Role;
+import com.woodfurni.auth.enums.UserStatus;
 import com.woodfurni.auth.model.Address;
+import com.woodfurni.auth.model.User;
 import com.woodfurni.auth.repository.UserRepository;
 import com.woodfurni.common.ApiResponse;
 import com.woodfurni.common.EntityNotFoundException;
+import com.woodfurni.delivery.dto.DriverResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -18,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * User profile controller.
@@ -152,5 +157,28 @@ public class UserController {
 
         userRepository.save(user);
         return ResponseEntity.ok(ApiResponse.success("Address deleted", null));
+    }
+
+    /**
+     * Danh sách tài xế (users có role DRIVER và status ACTIVE).
+     * Dùng cho dropdown chọn tài xế khi tạo chuyến xe.
+     */
+    @GetMapping("/drivers")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'SALES')")
+    @Operation(summary = "List drivers (users with role DRIVER)",
+               description = "Returns ACTIVE users whose role is DRIVER. Used by delivery module.")
+    public ResponseEntity<ApiResponse<List<DriverResponse>>> listDrivers() {
+        List<User> drivers = userRepository.findByRole(Role.DRIVER);
+        List<DriverResponse> result = drivers.stream()
+                .filter(u -> u.getStatus() == UserStatus.ACTIVE)
+                .map(u -> DriverResponse.builder()
+                        .id(u.getId())
+                        .fullName(u.getFullName())
+                        .email(u.getEmail())
+                        .phone(u.getPhone())
+                        .active(u.getStatus() == UserStatus.ACTIVE)
+                        .build())
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
 }

@@ -14,5 +14,7 @@ public enum Role {
     SALES,
     WAREHOUSE,
     CONTENT,
-    ADMIN
+    ADMIN,
+    /** Tài xế giao hàng — dùng cho module Chuyến xe (delivery). */
+    DRIVER
 }
