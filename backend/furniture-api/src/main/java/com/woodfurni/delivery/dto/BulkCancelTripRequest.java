@@ -1,0 +1,21 @@
+package com.woodfurni.delivery.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.List;
+
+/**
+ * Request hủy nhiều chuyến xe cùng lúc.
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class BulkCancelTripRequest {
+    private List<String> tripIds;
+    /** Lý do hủy chung cho tất cả các chuyến (optional). */
+    private String reason;
+}

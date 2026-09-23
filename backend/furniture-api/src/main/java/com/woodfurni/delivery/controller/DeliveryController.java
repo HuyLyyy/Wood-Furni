@@ -145,4 +145,30 @@ public class DeliveryController {
         String performedBy = userDetails != null ? userDetails.getUsername() : "system";
         return ResponseEntity.ok(ApiResponse.success("Đã hoàn thành chuyến xe.", deliveryService.completeTrip(id, performedBy)));
     }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // BULK ACTIONS
+    // ───────────────────────────────────────────────────────────────────────
+
+    @PostMapping("/trips/bulk-start")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'DRIVER')")
+    @Operation(summary = "Bắt đầu giao nhiều chuyến cùng lúc — các chuyến chuyển sang ĐANG GIAO")
+    public ResponseEntity<ApiResponse<BulkActionResponse>> bulkStartShipping(
+            @RequestBody BulkTripActionRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        BulkActionResponse result = deliveryService.bulkStartShipping(request.getTripIds(), performedBy);
+        return ResponseEntity.ok(ApiResponse.success("Đã bắt đầu giao " + result.getSuccessCount() + " chuyến.", result));
+    }
+
+    @PostMapping("/trips/bulk-cancel")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
+    @Operation(summary = "Hủy nhiều chuyến xe cùng lúc — các chuyến chuyển sang ĐÃ HỦY")
+    public ResponseEntity<ApiResponse<BulkActionResponse>> bulkCancelTrips(
+            @RequestBody BulkCancelTripRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        BulkActionResponse result = deliveryService.bulkCancelTrips(request.getTripIds(), request.getReason(), performedBy);
+        return ResponseEntity.ok(ApiResponse.success("Đã hủy " + result.getSuccessCount() + " chuyến.", result));
+    }
 }

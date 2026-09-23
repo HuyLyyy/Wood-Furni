@@ -353,6 +353,72 @@ public class DeliveryService {
     }
 
     // ───────────────────────────────────────────────────────────────────────
+    // BULK ACTIONS
+    // ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Bắt đầu giao nhiều chuyến cùng lúc.
+     */
+    public BulkActionResponse bulkStartShipping(List<String> tripIds, String performedBy) {
+        BulkActionResponse.BulkActionResponseBuilder builder = BulkActionResponse.builder();
+        int success = 0, fail = 0;
+        List<String> successIds = new ArrayList<>();
+        List<String> failureIds = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+
+        for (String tripId : tripIds) {
+            try {
+                startShipping(tripId, performedBy);
+                successIds.add(tripId);
+                success++;
+            } catch (Exception e) {
+                failureIds.add(tripId);
+                errors.add(tripId + ": " + e.getMessage());
+                fail++;
+            }
+        }
+
+        return builder
+                .successCount(success)
+                .failureCount(fail)
+                .successIds(successIds)
+                .failureIds(failureIds)
+                .errors(errors)
+                .build();
+    }
+
+    /**
+     * Hủy nhiều chuyến cùng lúc.
+     */
+    public BulkActionResponse bulkCancelTrips(List<String> tripIds, String reason, String performedBy) {
+        BulkActionResponse.BulkActionResponseBuilder builder = BulkActionResponse.builder();
+        int success = 0, fail = 0;
+        List<String> successIds = new ArrayList<>();
+        List<String> failureIds = new ArrayList<>();
+        List<String> errors = new ArrayList<>();
+
+        for (String tripId : tripIds) {
+            try {
+                cancelTrip(tripId, reason, performedBy);
+                successIds.add(tripId);
+                success++;
+            } catch (Exception e) {
+                failureIds.add(tripId);
+                errors.add(tripId + ": " + e.getMessage());
+                fail++;
+            }
+        }
+
+        return builder
+                .successCount(success)
+                .failureCount(fail)
+                .successIds(successIds)
+                .failureIds(failureIds)
+                .errors(errors)
+                .build();
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
     // HELPERS
     // ───────────────────────────────────────────────────────────────────────
 
