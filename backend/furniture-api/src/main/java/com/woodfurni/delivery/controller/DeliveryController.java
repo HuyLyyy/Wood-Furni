@@ -109,4 +109,40 @@ public class DeliveryController {
     public ResponseEntity<ApiResponse<DeliveryTripResponse>> getTripDetail(@PathVariable String id) {
         return ResponseEntity.ok(ApiResponse.success(deliveryService.getTripDetail(id)));
     }
+
+    // ───────────────────────────────────────────────────────────────────────
+    // TRIP ACTIONS
+    // ───────────────────────────────────────────────────────────────────────
+
+    @PostMapping("/trips/{id}/start")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'DRIVER')")
+    @Operation(summary = "Bắt đầu giao hàng — chuyến chuyển sang ĐANG GIAO")
+    public ResponseEntity<ApiResponse<DeliveryTripResponse>> startShipping(
+            @PathVariable String id,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        return ResponseEntity.ok(ApiResponse.success("Đã bắt đầu giao hàng.", deliveryService.startShipping(id, performedBy)));
+    }
+
+    @PostMapping("/trips/{id}/cancel")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
+    @Operation(summary = "Hủy chuyến xe — chuyến chuyển sang ĐÃ HỦY")
+    public ResponseEntity<ApiResponse<DeliveryTripResponse>> cancelTrip(
+            @PathVariable String id,
+            @RequestBody(required = false) CancelTripRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        String reason = request != null ? request.getReason() : null;
+        return ResponseEntity.ok(ApiResponse.success("Đã hủy chuyến xe.", deliveryService.cancelTrip(id, reason, performedBy)));
+    }
+
+    @PostMapping("/trips/{id}/complete")
+    @PreAuthorize("hasAnyRole('SALES', 'ADMIN')")
+    @Operation(summary = "Hoàn thành chuyến xe — chuyến chuyển sang HOÀN THÀNH (Sales/Admin xác nhận)")
+    public ResponseEntity<ApiResponse<DeliveryTripResponse>> completeTrip(
+            @PathVariable String id,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        return ResponseEntity.ok(ApiResponse.success("Đã hoàn thành chuyến xe.", deliveryService.completeTrip(id, performedBy)));
+    }
 }

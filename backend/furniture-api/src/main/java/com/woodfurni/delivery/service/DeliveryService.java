@@ -280,6 +280,79 @@ public class DeliveryService {
     }
 
     // ───────────────────────────────────────────────────────────────────────
+    // TRIP ACTIONS
+    // ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Bắt đầu giao hàng — chuyến chuyển sang SHIPPING.
+     * Chỉ chuyến ở trạng thái PLANNING mới được bắt đầu giao.
+     */
+    public DeliveryTripResponse startShipping(String tripId, String performedBy) {
+        DeliveryTrip t = tripRepository.findById(tripId)
+                .orElseThrow(() -> new EntityNotFoundException("DeliveryTrip not found: " + tripId));
+
+        if (t.getStatus() != DeliveryTripStatus.PLANNING) {
+            throw new IllegalStateException(
+                    "Chỉ chuyến ở trạng thái LÊN KẾ HOẠCH mới có thể bắt đầu giao. Trạng thái hiện tại: " + t.getStatus());
+        }
+
+        t.setStatus(DeliveryTripStatus.SHIPPING);
+        t.setShippedAt(Instant.now());
+
+        DeliveryTrip saved = tripRepository.save(t);
+        log.info("[DeliveryTrip] {} started shipping by {}", saved.getTripNumber(), performedBy);
+
+        return toTripResponse(saved, true);
+    }
+
+    /**
+     * Hủy chuyến xe — chuyến chuyển sang CANCELLED.
+     * Chỉ chuyến ở trạng thái PLANNING mới được hủy.
+     */
+    public DeliveryTripResponse cancelTrip(String tripId, String reason, String performedBy) {
+        DeliveryTrip t = tripRepository.findById(tripId)
+                .orElseThrow(() -> new EntityNotFoundException("DeliveryTrip not found: " + tripId));
+
+        if (t.getStatus() != DeliveryTripStatus.PLANNING) {
+            throw new IllegalStateException(
+                    "Chỉ chuyến ở trạng thái LÊN KẾ HOẠCH mới có thể hủy. Trạng thái hiện tại: " + t.getStatus());
+        }
+
+        t.setStatus(DeliveryTripStatus.CANCELLED);
+        t.setCancelledAt(Instant.now());
+        t.setCancelledBy(performedBy);
+        t.setCancelReason(reason);
+
+        DeliveryTrip saved = tripRepository.save(t);
+        log.info("[DeliveryTrip] {} cancelled by {} - reason: {}", saved.getTripNumber(), performedBy, reason);
+
+        return toTripResponse(saved, true);
+    }
+
+    /**
+     * Hoàn thành chuyến xe — chuyến chuyển sang COMPLETED.
+     * Chỉ chuyến ở trạng thái SHIPPING mới được hoàn thành.
+     * Thường do Sales/Admin xác nhận sau khi nhận lại hàng từ tài xế.
+     */
+    public DeliveryTripResponse completeTrip(String tripId, String performedBy) {
+        DeliveryTrip t = tripRepository.findById(tripId)
+                .orElseThrow(() -> new EntityNotFoundException("DeliveryTrip not found: " + tripId));
+
+        if (t.getStatus() != DeliveryTripStatus.SHIPPING) {
+            throw new IllegalStateException(
+                    "Chỉ chuyến đang GIAO mới có thể hoàn thành. Trạng thái hiện tại: " + t.getStatus());
+        }
+
+        t.setStatus(DeliveryTripStatus.COMPLETED);
+        t.setCompletedAt(Instant.now());
+
+        DeliveryTrip saved = tripRepository.save(t);
+        log.info("[DeliveryTrip] {} completed by {}", saved.getTripNumber(), performedBy);
+
+        return toTripResponse(saved, true);
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
     // HELPERS
     // ───────────────────────────────────────────────────────────────────────
 
@@ -395,7 +468,10 @@ public class DeliveryService {
                 .createdBy(t.getCreatedBy())
                 .createdAt(t.getCreatedAt())
                 .shippedAt(t.getShippedAt())
-                .completedAt(t.getCompletedAt());
+                .completedAt(t.getCompletedAt())
+                .cancelledAt(t.getCancelledAt())
+                .cancelledBy(t.getCancelledBy())
+                .cancelReason(t.getCancelReason());
 
         if (withOrders) {
             List<DeliveryTripOrder> links = tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId());

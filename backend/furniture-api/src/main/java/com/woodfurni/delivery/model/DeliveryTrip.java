@@ -88,4 +88,13 @@ public class DeliveryTrip {
     private Instant shippedAt;
 
     private Instant completedAt;
+
+    /** Thời điểm hủy chuyến. */
+    private Instant cancelledAt;
+
+    /** User id của người hủy chuyến. */
+    private String cancelledBy;
+
+    /** Lý do hủy (optional). */
+    private String cancelReason;
 }

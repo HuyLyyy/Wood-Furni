@@ -38,6 +38,9 @@ public class DeliveryTripResponse {
     private Instant createdAt;
     private Instant shippedAt;
     private Instant completedAt;
+    private Instant cancelledAt;
+    private String cancelledBy;
+    private String cancelReason;
     /** Danh sách đơn thuộc chuyến (rỗng trong list ngắn, đầy đủ trong detail). */
     @Builder.Default
     private List<TripOrderResponse> orders = new ArrayList<>();
