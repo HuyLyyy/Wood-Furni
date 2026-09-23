@@ -90,6 +90,8 @@ public class OrderService {
     private final NotificationClient notificationClient;
     private final ShippingService shippingService;
     private final MongoTemplate mongoTemplate;
+    private final com.woodfurni.delivery.repository.DeliveryTripOrderRepository deliveryTripOrderRepository;
+    private final com.woodfurni.delivery.repository.DeliveryTripRepository deliveryTripRepository;
 
     private static final DateTimeFormatter ORDER_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
@@ -678,6 +680,11 @@ public class OrderService {
 
         Order saved = orderRepository.save(order);
 
+        // Nếu đơn vừa chuyển sang DELIVERED → kiểm tra và auto-complete chuyến xe (nếu có)
+        if (saved.getStatus() == OrderStatus.DELIVERED) {
+            tryAutoCompleteTripForOrder(saved.getId(), actorUserId);
+        }
+
         // Realtime notify the customer that their order status changed.
         notificationClient.notifyOrderStatus(
                 saved.getId(),
@@ -814,6 +821,11 @@ public class OrderService {
         }
 
         Order saved = orderRepository.save(order);
+
+        // Nếu tracking update đánh dấu đã giao → auto-complete chuyến xe (nếu có)
+        if (newStatus == OrderStatus.DELIVERED) {
+            tryAutoCompleteTripForOrder(saved.getId(), actorUserId);
+        }
 
         // Realtime notify the customer for every tracking update — both
         // intermediate ("Đã lấy hàng", ...) and the final delivered one.
@@ -1024,6 +1036,54 @@ public class OrderService {
      *
      * ADMIN retains the catch-all bypass for legitimate ops overrides.
      */
+    /**
+     * Khi đơn chuyển sang DELIVERED → tìm chuyến xe chứa đơn này và check xem tất cả
+     * các đơn trong chuyến đã DELIVERED / CANCELLED chưa. Nếu rồi → auto-complete chuyến.
+     *
+     * Best-effort: mọi exception đều log warning nhưng KHÔNG rollback đơn hàng.
+     */
+    private void tryAutoCompleteTripForOrder(String orderId, String actorUserId) {
+        try {
+            // Tìm link trip-order cho order này
+            var links = deliveryTripOrderRepository.findByOrderId(orderId);
+            if (links == null || links.isEmpty()) return;
+
+            String tripId = links.get(0).getTripId();
+            var tripOpt = deliveryTripRepository.findById(tripId);
+            if (tripOpt.isEmpty()) return;
+
+            var trip = tripOpt.get();
+            // Chỉ auto-complete khi trip đang SHIPPING
+            if (trip.getStatus() != com.woodfurni.delivery.enums.DeliveryTripStatus.SHIPPING) {
+                return;
+            }
+
+            // Lấy tất cả orderIds thuộc trip
+            var tripLinks = deliveryTripOrderRepository.findByTripIdOrderBySequenceAsc(tripId);
+            if (tripLinks.isEmpty()) return;
+
+            // Check trạng thái từng order
+            boolean allDone = tripLinks.stream().allMatch(link -> {
+                var o = orderRepository.findById(link.getOrderId()).orElse(null);
+                if (o == null) return false;
+                return o.getStatus() == OrderStatus.DELIVERED
+                        || o.getStatus() == OrderStatus.CANCELLED
+                        || o.getStatus() == OrderStatus.RETURNED;
+            });
+
+            if (allDone) {
+                trip.setStatus(com.woodfurni.delivery.enums.DeliveryTripStatus.COMPLETED);
+                trip.setCompletedAt(java.time.Instant.now());
+                deliveryTripRepository.save(trip);
+                log.info("[AutoCompleteTrip] Trip {} → COMPLETED (triggered by order {} DELIVERED, actor={})",
+                        trip.getTripNumber(), orderId, actorUserId);
+            }
+        } catch (Exception ex) {
+            log.warn("[AutoCompleteTrip] Failed to auto-complete trip for order {}: {}",
+                    orderId, ex.getMessage());
+        }
+    }
+
     private boolean isValidTransition(OrderStatus from, OrderStatus to, String role) {
         if (from == to) return false;
         boolean isAdmin = "ADMIN".equals(role);

@@ -14,6 +14,8 @@ public interface DeliveryTripOrderRepository extends MongoRepository<DeliveryTri
 
     Optional<DeliveryTripOrder> findByTripIdAndOrderId(String tripId, String orderId);
 
+    List<DeliveryTripOrder> findByOrderId(String orderId);
+
     boolean existsByOrderId(String orderId);
 
     void deleteByTripId(String tripId);
