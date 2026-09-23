@@ -8,6 +8,7 @@ import com.woodfurni.auth.model.User;
 import com.woodfurni.auth.repository.UserRepository;
 import com.woodfurni.common.ApiResponse;
 import com.woodfurni.common.EntityNotFoundException;
+import com.woodfurni.delivery.dto.AssemblerResponse;
 import com.woodfurni.delivery.dto.DriverResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -172,6 +173,30 @@ public class UserController {
         List<DriverResponse> result = drivers.stream()
                 .filter(u -> u.getStatus() == UserStatus.ACTIVE)
                 .map(u -> DriverResponse.builder()
+                        .id(u.getId())
+                        .fullName(u.getFullName())
+                        .email(u.getEmail())
+                        .phone(u.getPhone())
+                        .active(u.getStatus() == UserStatus.ACTIVE)
+                        .build())
+                .collect(Collectors.toList());
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
+
+    /**
+     * Danh sách nhân viên lắp ráp phụ trợ (role ASSEMBLER, status ACTIVE).
+     * Dùng cho phần chọn lắp ráp kèm theo chuyến xe — tối đa 2 người/chuyến.
+     */
+    @GetMapping("/assemblers")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'SALES')")
+    @Operation(summary = "List assemblers (users with role ASSEMBLER)",
+               description = "Returns ACTIVE users whose role is ASSEMBLER. Used by delivery module " +
+                       "as auxiliary staff that may accompany a trip.")
+    public ResponseEntity<ApiResponse<List<AssemblerResponse>>> listAssemblers() {
+        List<User> assemblers = userRepository.findByRole(Role.ASSEMBLER);
+        List<AssemblerResponse> result = assemblers.stream()
+                .filter(u -> u.getStatus() == UserStatus.ACTIVE)
+                .map(u -> AssemblerResponse.builder()
                         .id(u.getId())
                         .fullName(u.getFullName())
                         .email(u.getEmail())

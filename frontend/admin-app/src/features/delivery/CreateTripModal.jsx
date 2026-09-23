@@ -160,8 +160,11 @@ export default function CreateTripModal({ onClose, onDone }) {
 
     // ── Step 3: driver ────────────────────────────────────────────────────────
     const [drivers, setDrivers] = useState([]);
+    const [assemblers, setAssemblers] = useState([]);
     const [selectedDriverId, setSelectedDriverId] = useState('');
+    const [selectedAssemblerIds, setSelectedAssemblerIds] = useState(new Set());
     const [loadingDrivers, setLoadingDrivers] = useState(true);
+    const [loadingAssemblers, setLoadingAssemblers] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
 
@@ -171,6 +174,25 @@ export default function CreateTripModal({ onClose, onDone }) {
             .catch(() => toast.error('Không thể tải danh sách tài xế'))
             .finally(() => setLoadingDrivers(false));
     }, []);
+
+    useEffect(() => {
+        userApi.listAssemblers()
+            .then(setAssemblers)
+            .catch(() => toast.error('Không thể tải danh sách nhân viên lắp ráp'))
+            .finally(() => setLoadingAssemblers(false));
+    }, []);
+
+    const toggleAssembler = (id) => {
+        setSelectedAssemblerIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) {
+                next.delete(id);
+            } else if (next.size < 2) {
+                next.add(id);
+            }
+            return next;
+        });
+    };
 
     const handleCreate = async () => {
         if (!selectedDriverId) {
@@ -184,6 +206,7 @@ export default function CreateTripModal({ onClose, onDone }) {
                 orderIds: Array.from(selectedOrderIds),
                 vehicleTypeCode: selectedVehicle,
                 driverId: selectedDriverId,
+                assemblerIds: Array.from(selectedAssemblerIds),
             });
             toast.success('Đã tạo chuyến xe thành công!');
             onDone();
@@ -400,6 +423,41 @@ export default function CreateTripModal({ onClose, onDone }) {
                                         <div className="driver-item__inner">
                                             <strong>{d.fullName}</strong>
                                             <span>{d.phone || d.email}</span>
+                                        </div>
+                                    </label>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Assembler selection */}
+                    <div className="step3-section">
+                        <div className="step3-section-label">
+                            Chọn nhân viên lắp ráp (tối đa 2 người)
+                            <span className="step3-section-hint">Có thể chọn 0, 1 hoặc 2 người đi cùng chuyến xe</span>
+                        </div>
+                        {loadingAssemblers && <p className="step-loading">Đang tải danh sách nhân viên lắp ráp…</p>}
+                        {!loadingAssemblers && assemblers.length === 0 && (
+                            <p className="step-empty">
+                                Chưa có nhân viên lắp ráp nào.
+                            </p>
+                        )}
+                        {!loadingAssemblers && assemblers.length > 0 && (
+                            <div className="assembler-list">
+                                {assemblers.map(a => (
+                                    <label
+                                        key={a.id}
+                                        className={`assembler-item ${selectedAssemblerIds.has(a.id) ? 'is-selected' : ''}`}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedAssemblerIds.has(a.id)}
+                                            onChange={() => toggleAssembler(a.id)}
+                                            disabled={!selectedAssemblerIds.has(a.id) && selectedAssemblerIds.size >= 2}
+                                        />
+                                        <div className="assembler-item__inner">
+                                            <strong>{a.fullName}</strong>
+                                            <span>{a.phone || a.email}</span>
                                         </div>
                                     </label>
                                 ))}

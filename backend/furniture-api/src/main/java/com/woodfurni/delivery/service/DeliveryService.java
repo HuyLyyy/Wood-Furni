@@ -161,10 +161,13 @@ public class DeliveryService {
 
     /**
      * Tạo chuyến xe. Validate trước — nếu không fits → throw exception.
+     *
+     * @param assemblerIds danh sách user id lắp ráp phụ trợ đi kèm (tối đa 2). null/empty OK.
      */
     public DeliveryTripResponse createTrip(List<String> orderIds,
                                            String vehicleTypeCode,
                                            String driverId,
+                                           List<String> assemblerIds,
                                            String note,
                                            String createdByUserId) {
         TripCapacityResponse preview = previewCapacity(orderIds, vehicleTypeCode);
@@ -184,6 +187,34 @@ public class DeliveryService {
         String driverName = driver.getFullName();
         String driverPhone = driver.getPhone();
 
+        // Resolve assemblers (0–2). Validate từng id có tồn tại và có role ASSEMBLER.
+        List<String> assemblerIdsClean = assemblerIds == null ? Collections.emptyList() : assemblerIds;
+        // Loại bỏ trùng + null/blank
+        List<String> dedupIds = assemblerIdsClean.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
+        if (dedupIds.size() > MAX_ASSEMBLERS_PER_TRIP) {
+            throw new IllegalArgumentException(
+                    "Mỗi chuyến xe chỉ được chọn tối đa " + MAX_ASSEMBLERS_PER_TRIP + " nhân viên lắp ráp.");
+        }
+        List<String> assemblerNames = new ArrayList<>();
+        for (String aid : dedupIds) {
+            if (aid.equals(driverId)) {
+                throw new IllegalArgumentException(
+                        "Không thể chọn cùng 1 người vừa làm tài xế vừa lắp ráp: " + aid);
+            }
+            User a = userRepository.findById(aid)
+                    .orElseThrow(() -> new EntityNotFoundException("Assembler not found: " + aid));
+            if (a.getRole() != com.woodfurni.auth.enums.Role.ASSEMBLER) {
+                throw new IllegalArgumentException(
+                        "User " + aid + " không phải nhân viên lắp ráp (role ASSEMBLER).");
+            }
+            assemblerNames.add(a.getFullName());
+        }
+
         DeliveryTrip trip = DeliveryTrip.builder()
                 .tripNumber(generateTripNumber())
                 .status(DeliveryTripStatus.PLANNING)
@@ -192,6 +223,8 @@ public class DeliveryService {
                 .driverId(driverId)
                 .driverName(driverName)
                 .driverPhone(driverPhone)
+                .assemblerIds(new ArrayList<>(dedupIds))
+                .assemblerNames(assemblerNames)
                 .totalOrders(agg.totalOrders)
                 .totalWeightKg(agg.totalWeightKg)
                 .totalVolumeM3(agg.totalVolumeM3)
@@ -226,9 +259,10 @@ public class DeliveryService {
             tripOrderRepository.save(link);
         }
 
-        log.info("[DeliveryTrip] Created {} with {} orders, weight={}kg, volume={}m³",
+        log.info("[DeliveryTrip] Created {} with {} orders, weight={}kg, volume={}m³, drivers={}, assemblers={}",
                 saved.getTripNumber(), saved.getTotalOrders(),
-                saved.getTotalWeightKg(), saved.getTotalVolumeM3());
+                saved.getTotalWeightKg(), saved.getTotalVolumeM3(),
+                driverName, assemblerNames);
 
         return toTripResponse(saved, true);
     }

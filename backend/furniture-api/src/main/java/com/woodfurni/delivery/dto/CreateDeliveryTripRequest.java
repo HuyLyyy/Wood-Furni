@@ -26,6 +26,12 @@ public class CreateDeliveryTripRequest {
     @NotBlank(message = "Phải chọn tài xế")
     private String driverId;
 
+    /**
+     * Danh sách user id của nhân viên lắp ráp phụ trợ đi kèm (tối đa 2).
+     * Optional — nếu null/empty thì chuyến không có lắp ráp.
+     */
+    private List<String> assemblerIds;
+
     /** Ghi chú (optional). */
     private String note;
 }
