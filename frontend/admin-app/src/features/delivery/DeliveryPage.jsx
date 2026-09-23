@@ -11,6 +11,7 @@ const STATUS_LABELS = {
     PLANNING:   { label: 'Lên kế hoạch', cls: 'status--planning' },
     SHIPPING:   { label: 'Đang giao',   cls: 'status--shipping'  },
     COMPLETED:  { label: 'Hoàn thành',  cls: 'status--completed' },
+    CANCELLED:  { label: 'Đã hủy',      cls: 'status--cancelled' },
 };
 
 function StatusBadge({ status }) {
@@ -27,6 +28,10 @@ export default function DeliveryPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [showCreate, setShowCreate] = useState(false);
+    const [selectedIds, setSelectedIds] = useState([]);
+    const [bulkLoading, setBulkLoading] = useState(false);
+    const [showCancelModal, setShowCancelModal] = useState(false);
+    const [cancelReason, setCancelReason] = useState('');
 
     const loadPage = useCallback(async (page) => {
         setLoading(true);
@@ -42,6 +47,8 @@ export default function DeliveryPage() {
                 totalPages: data.totalPages ?? 0,
                 totalElements: data.totalElements ?? 0,
             });
+            // Reset selection khi load lại
+            setSelectedIds([]);
         } catch (err) {
             setError(err?.message || 'Không thể tải danh sách chuyến xe');
         } finally {
@@ -53,8 +60,91 @@ export default function DeliveryPage() {
 
     const columns = useMemo(() => [
         {
+            key: '_select', header: '', width: 50,
+            render: (r) => {
+                if (r.status !== 'PLANNING') {
+                    return <span className="text-muted">—</span>;
+                }
+                const checked = selectedIds.includes(r.id);
+                return (
+                    <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleSelect(r.id)}
+                        aria-label={`Chọn chuyến ${r.tripNumber}`}
+                    />
+                );
+            },
+        },
+        {
             key: 'tripNumber', header: 'Số chuyến', width: 160,
             render: (r) => <strong>{r.tripNumber}</strong>,
+        },
+        {
+            key: '_actions', header: 'Hành động', width: 240,
+            render: (r) => {
+                if (r.status === 'PLANNING') {
+                    return (
+                        <div className="row-actions">
+                            <button
+                                type="button"
+                                className="btn-row btn-row--primary"
+                                disabled={bulkLoading}
+                                onClick={async () => {
+                                    try {
+                                        await deliveryApi.startShipping(r.id);
+                                        toast.success(`Đã bắt đầu giao ${r.tripNumber}`);
+                                        loadPage(pagination.page);
+                                    } catch (e) {
+                                        toast.error(e?.message || 'Thất bại');
+                                    }
+                                }}
+                            >Xác nhận giao</button>
+                            <button
+                                type="button"
+                                className="btn-row btn-row--danger"
+                                disabled={bulkLoading}
+                                onClick={async () => {
+                                    if (!window.confirm(`Hủy chuyến ${r.tripNumber}?`)) return;
+                                    try {
+                                        await deliveryApi.cancelTrip(r.id, '');
+                                        toast.success(`Đã hủy ${r.tripNumber}`);
+                                        loadPage(pagination.page);
+                                    } catch (e) {
+                                        toast.error(e?.message || 'Thất bại');
+                                    }
+                                }}
+                            >Hủy chuyến</button>
+                        </div>
+                    );
+                }
+                if (r.status === 'SHIPPING') {
+                    return (
+                        <div className="row-actions">
+                            <button
+                                type="button"
+                                className="btn-row btn-row--success"
+                                disabled={bulkLoading}
+                                onClick={async () => {
+                                    if (!window.confirm(`Xác nhận hoàn thành chuyến ${r.tripNumber}?`)) return;
+                                    try {
+                                        await deliveryApi.completeTrip(r.id);
+                                        toast.success(`Đã hoàn thành ${r.tripNumber}`);
+                                        loadPage(pagination.page);
+                                    } catch (e) {
+                                        toast.error(e?.message || 'Thất bại');
+                                    }
+                                }}
+                            >Hoàn thành</button>
+                        </div>
+                    );
+                }
+                return <span className="text-muted">—</span>;
+            },
+        },
+        {
+            key: 'status', header: 'Trạng thái', width: 130,
+            render: (r) => <StatusBadge status={r.status} />,
         },
         {
             key: 'status', header: 'Trạng thái', width: 130,
@@ -86,11 +176,72 @@ export default function DeliveryPage() {
             key: 'createdAt', header: 'Ngày tạo', width: 140,
             render: (r) => formatDateTime(r.createdAt),
         },
-    ], []);
+    ], [selectedIds, bulkLoading, pagination.page]);
 
     const handleSearch = (e) => {
         e.preventDefault();
         loadPage(0);
+    };
+
+    // Chỉ các chuyến PLANNING mới cho phép chọn để bulk action
+    const selectableIds = useMemo(
+        () => trips.filter((t) => t.status === 'PLANNING').map((t) => t.id),
+        [trips]
+    );
+
+    const toggleSelect = (id) => {
+        setSelectedIds((prev) =>
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+        );
+    };
+
+    const toggleSelectAll = () => {
+        if (selectedIds.length === selectableIds.length) {
+            setSelectedIds([]);
+        } else {
+            setSelectedIds([...selectableIds]);
+        }
+    };
+
+    const handleBulkStart = async () => {
+        if (selectedIds.length === 0) return;
+        setBulkLoading(true);
+        try {
+            const res = await deliveryApi.bulkStartShipping(selectedIds);
+            toast.success(
+                `Đã bắt đầu giao ${res.successCount ?? selectedIds.length} chuyến` +
+                (res.failureCount > 0 ? `, ${res.failureCount} thất bại` : '')
+            );
+            if (res.errors?.length > 0) {
+                console.warn('Bulk start errors:', res.errors);
+            }
+            setSelectedIds([]);
+            loadPage(pagination.page);
+        } catch (err) {
+            toast.error(err?.message || 'Không thể bắt đầu giao hàng');
+        } finally {
+            setBulkLoading(false);
+        }
+    };
+
+    const handleBulkCancel = async () => {
+        if (selectedIds.length === 0) return;
+        setBulkLoading(true);
+        try {
+            const res = await deliveryApi.bulkCancelTrips(selectedIds, cancelReason);
+            toast.success(
+                `Đã hủy ${res.successCount ?? selectedIds.length} chuyến` +
+                (res.failureCount > 0 ? `, ${res.failureCount} thất bại` : '')
+            );
+            setShowCancelModal(false);
+            setCancelReason('');
+            setSelectedIds([]);
+            loadPage(pagination.page);
+        } catch (err) {
+            toast.error(err?.message || 'Không thể hủy chuyến xe');
+        } finally {
+            setBulkLoading(false);
+        }
     };
 
     return (
@@ -144,6 +295,39 @@ export default function DeliveryPage() {
                 </div>
             )}
 
+            {selectedIds.length > 0 && (
+                <div className="bulk-action-bar">
+                    <span className="bulk-action-bar__count">
+                        Đã chọn <strong>{selectedIds.length}</strong> chuyến xe
+                    </span>
+                    <div className="bulk-action-bar__buttons">
+                        <Button
+                            variant="primary"
+                            size="sm"
+                            disabled={bulkLoading}
+                            onClick={handleBulkStart}
+                        >
+                            {bulkLoading ? 'Đang xử lý…' : `Bắt đầu giao ${selectedIds.length} chuyến`}
+                        </Button>
+                        <Button
+                            variant="danger"
+                            size="sm"
+                            disabled={bulkLoading}
+                            onClick={() => setShowCancelModal(true)}
+                        >
+                            Hủy {selectedIds.length} chuyến
+                        </Button>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedIds([])}
+                        >
+                            Bỏ chọn
+                        </Button>
+                    </div>
+                </div>
+            )}
+
             {!loading && !error && trips.length > 0 && (
                 <div className="delivery-table-wrap">
                     <table className="delivery-table">
@@ -151,7 +335,14 @@ export default function DeliveryPage() {
                             <tr>
                                 {columns.map((c) => (
                                     <th key={c.key} style={{ width: c.width, textAlign: c.align || 'left' }}>
-                                        {c.header}
+                                        {c.key === '_select' && selectableIds.length > 0 ? (
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedIds.length === selectableIds.length && selectableIds.length > 0}
+                                                onChange={toggleSelectAll}
+                                                aria-label="Chọn tất cả"
+                                            />
+                                        ) : c.header}
                                     </th>
                                 ))}
                             </tr>
@@ -196,6 +387,40 @@ export default function DeliveryPage() {
                     onClose={() => setShowCreate(false)}
                     onDone={() => { setShowCreate(false); loadPage(0); }}
                 />
+            )}
+
+            {showCancelModal && (
+                <div className="modal-overlay" onClick={() => setShowCancelModal(false)}>
+                    <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+                        <h3>Hủy {selectedIds.length} chuyến xe</h3>
+                        <p className="text-muted">
+                            Các chuyến xe đã chọn sẽ chuyển sang trạng thái <strong>Đã hủy</strong>.
+                        </p>
+                        <label className="modal-label">
+                            Lý do hủy (tuỳ chọn)
+                            <textarea
+                                value={cancelReason}
+                                onChange={(e) => setCancelReason(e.target.value)}
+                                placeholder="Nhập lý do hủy..."
+                                rows={3}
+                                style={{ width: '100%', marginTop: 6 }}
+                            />
+                        </label>
+                        <div className="modal-actions">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => { setShowCancelModal(false); setCancelReason(''); }}
+                            >Đóng</Button>
+                            <Button
+                                variant="danger"
+                                size="sm"
+                                disabled={bulkLoading}
+                                onClick={handleBulkCancel}
+                            >{bulkLoading ? 'Đang xử lý…' : 'Xác nhận hủy'}</Button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

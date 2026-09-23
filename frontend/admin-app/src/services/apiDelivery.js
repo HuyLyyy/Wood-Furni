@@ -35,6 +35,23 @@ export const deliveryApi = {
 
     getTripDetail: (id) =>
         apiClient.get(`/delivery/trips/${id}`).then(unwrap),
+
+    // Trip actions
+    startShipping: (id) =>
+        apiClient.post(`/delivery/trips/${id}/start`).then(unwrap),
+
+    cancelTrip: (id, reason) =>
+        apiClient.post(`/delivery/trips/${id}/cancel`, { reason: reason || '' }).then(unwrap),
+
+    completeTrip: (id) =>
+        apiClient.post(`/delivery/trips/${id}/complete`).then(unwrap),
+
+    // Bulk actions
+    bulkStartShipping: (tripIds) =>
+        apiClient.post('/delivery/trips/bulk-start', { tripIds }).then(unwrap),
+
+    bulkCancelTrips: (tripIds, reason) =>
+        apiClient.post('/delivery/trips/bulk-cancel', { tripIds, reason: reason || '' }).then(unwrap),
 };
 
 export const userApi = {
