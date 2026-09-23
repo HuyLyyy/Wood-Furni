@@ -8,6 +8,9 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 import org.springframework.data.mongodb.repository.Query;
 import org.springframework.stereotype.Repository;
 
+import java.util.Collection;
+import java.util.List;
+
 @Repository
 public interface DeliveryTripRepository extends MongoRepository<DeliveryTrip, String> {
 
@@ -15,6 +18,12 @@ public interface DeliveryTripRepository extends MongoRepository<DeliveryTrip, St
 
     @Query("{ 'tripNumber': { $regex: ?0, $options: 'i' } }")
     Page<DeliveryTrip> findByTripNumberContaining(String fragment, Pageable pageable);
+
+    /**
+     * Lấy các chuyến xe có tripNumber nằm trong danh sách (case-insensitive exact match).
+     * Dùng cho search theo nhiều mã chuyến cùng lúc (phân cách bởi khoảng trắng hoặc dấu phẩy).
+     */
+    List<DeliveryTrip> findByTripNumberInIgnoreCase(Collection<String> tripNumbers);
 
     boolean existsByTripNumber(String tripNumber);
 }

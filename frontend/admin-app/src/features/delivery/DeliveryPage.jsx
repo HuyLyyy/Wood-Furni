@@ -272,7 +272,7 @@ export default function DeliveryPage() {
             <form className="delivery-search" onSubmit={handleSearch}>
                 <input
                     type="text"
-                    placeholder="Tìm số chuyến (VD: TRIP-20260923-0001)…"
+                    placeholder="Tìm số chuyến (phân cách bằng dấu phẩy hoặc khoảng trắng nếu nhập nhiều)..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                 />

@@ -19,6 +19,7 @@ import com.woodfurni.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -256,13 +257,56 @@ public class DeliveryService {
 
     /**
      * List trips với filter status + search theo tripNumber.
+     *
+     * Search hỗ trợ NHIỀU mã chuyến cùng lúc, phân cách bởi dấu phẩy hoặc khoảng trắng.
+     * Ví dụ: "TRIP-20260923-0001, TRIP-20260922-0002 TRIP-20260921-0003"
+     * → match exact (case-insensitive) với từng mã.
+     * Nếu chỉ có 1 mã → fallback tìm LIKE (contains) để hỗ trợ tìm gần đúng.
      */
     public Page<DeliveryTripResponse> listTrips(String statusCode, String search, int page, int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<DeliveryTrip> trips;
 
-        if (search != null && !search.isBlank()) {
-            trips = tripRepository.findByTripNumberContaining(search, pageable);
+        // Parse search: tách theo ',' hoặc khoảng trắng, trim, bỏ rỗng
+        List<String> codes = parseTripSearchTokens(search);
+
+        if (!codes.isEmpty()) {
+            // Nếu nhiều hơn 1 mã → tìm exact match (in) cho từng mã
+            if (codes.size() > 1) {
+                List<DeliveryTrip> matched = tripRepository.findByTripNumberInIgnoreCase(codes);
+                // Lọc thêm theo status nếu có
+                if (statusCode != null && !statusCode.isBlank()) {
+                    DeliveryTripStatus st = parseStatus(statusCode);
+                    if (st != null) {
+                        matched = matched.stream()
+                                .filter(t -> t.getStatus() == st)
+                                .collect(Collectors.toList());
+                    }
+                }
+                // Sắp xếp createdAt desc để nhất quán với các nhánh khác
+                matched = matched.stream()
+                        .sorted(Comparator.comparing(DeliveryTrip::getCreatedAt,
+                                Comparator.nullsLast(Comparator.reverseOrder())))
+                        .collect(Collectors.toList());
+                trips = new PageImpl<>(matched, pageable, matched.size());
+            } else {
+                // 1 mã duy nhất → LIKE để tiện tìm gần đúng
+                String single = codes.get(0);
+                Page<DeliveryTrip> byLike = tripRepository.findByTripNumberContaining(single, pageable);
+                if (statusCode != null && !statusCode.isBlank()) {
+                    DeliveryTripStatus st = parseStatus(statusCode);
+                    if (st != null) {
+                        List<DeliveryTrip> filtered = byLike.getContent().stream()
+                                .filter(t -> t.getStatus() == st)
+                                .collect(Collectors.toList());
+                        trips = new PageImpl<>(filtered, pageable, filtered.size());
+                    } else {
+                        trips = byLike;
+                    }
+                } else {
+                    trips = byLike;
+                }
+            }
         } else if (statusCode != null && !statusCode.isBlank()) {
             DeliveryTripStatus st = parseStatus(statusCode);
             trips = (st == null) ? tripRepository.findAll(pageable) : tripRepository.findByStatus(st, pageable);
@@ -271,6 +315,22 @@ public class DeliveryService {
         }
 
         return trips.map(t -> toTripResponse(t, false));
+    }
+
+    /**
+     * Tách chuỗi search thành danh sách mã chuyến:
+     *   "TRIP-1, TRIP-2 TRIP-3 , TRIP-4"
+     * → ["TRIP-1","TRIP-2","TRIP-3","TRIP-4"]
+     */
+    private List<String> parseTripSearchTokens(String search) {
+        if (search == null || search.isBlank()) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(search.split("[,\\s]+"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .collect(Collectors.toList());
     }
 
     public DeliveryTripResponse getTripDetail(String id) {
