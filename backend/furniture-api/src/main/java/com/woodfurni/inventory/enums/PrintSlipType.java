@@ -10,7 +10,7 @@ package com.woodfurni.inventory.enums;
  *
  * Mapping từ reasonCode trong InventoryHistory.reasonCode:
  *   MUA_TAI_CUA_HANG    ←  MUA_HANG_TAI_CUA_HANG
- *   NHAP_KHO       ←  IMPORT
+ *   NHAP_KHO       ←  IMPORT  (legacy)  và  NHAP_KHO_HANG_BAN (đơn nhập mới)
  *   XUAT_KHO       ←  EXPORT
  *   HU_HONG        ←  DAMAGE
  *   MAT_MAT        ←  LOSS

@@ -394,6 +394,11 @@ public class InventoryService {
             throw new IllegalArgumentException(
                     "Lý do 'Mua hàng tại cửa hàng' chỉ ghi nhận đơn bán lẻ → delta phải là số ÂM (trừ tồn kho).");
         }
+        // NHAP_KHO_HANG_BAN chỉ tăng tồn kho (delta > 0).
+        if (request.getReasonCode() == AdjustmentReason.NHAP_KHO_HANG_BAN && request.getDelta() < 0) {
+            throw new IllegalArgumentException(
+                    "Lý do 'Nhập kho hàng bán' chỉ ghi nhận đơn nhập mới → delta phải là số DƯƠNG (tăng tồn kho).");
+        }
 
         int delta = request.getDelta();
         EvidenceStorageService.StoredFileWithId stored = evidenceStorageService.save(evidence);
@@ -454,6 +459,7 @@ public class InventoryService {
         if (code == null) return null;
         return switch (code) {
             case MUA_HANG_TAI_CUA_HANG -> "Bán hàng tại cửa hàng";
+            case NHAP_KHO_HANG_BAN -> "Nhập kho hàng bán";
             case DAMAGE_STOCK -> "Hàng hư hỏng tồn kho";
             case LOSS_THEFT -> "Hàng mất mát";
             case CUSTOMER_RETURN -> "Hàng trả lại từ khách";

@@ -229,6 +229,7 @@ function DotsMenu({ product, onAdjust, onHistory, onDetail, canAdjust }) {
 // ─────────────────────────────────────────────────────────────────────────────
 const ADJUSTMENT_REASONS = [
     { code: 'MUA_HANG_TAI_CUA_HANG', label: 'Mua hàng tại cửa hàng',       hint: 'Ghi nhận đơn bán lẻ tại quầy — chỉ được trừ tồn kho (delta < 0). Upload phiếu in "Mua tại cửa hàng" làm minh chứng.' },
+    { code: 'NHAP_KHO_HANG_BAN',     label: 'Nhập kho hàng bán',            hint: 'Ghi nhận đơn nhập mới — chỉ được tăng tồn kho (delta > 0). Upload "Phiếu nhập kho" làm minh chứng.' },
     { code: 'DAMAGE_STOCK',       label: 'Hàng hư hỏng tồn kho',           hint: 'Mối mọt, ẩm mốc, vỡ khi lưu kho' },
     { code: 'LOSS_THEFT',          label: 'Hàng mất mát',                  hint: 'Thất lạc, trộm trong kho / vận chuyển' },
     { code: 'CUSTOMER_RETURN',     label: 'Hàng trả lại từ khách',          hint: 'Khách đổi / trả — nhập lại kho hoặc loại bỏ' },
@@ -288,6 +289,11 @@ function AdjustModal({ target, onClose, onDone }) {
             setError('Lý do "Mua hàng tại cửa hàng" chỉ ghi nhận đơn bán lẻ — delta phải là số ÂM.');
             return;
         }
+        // NHAP_KHO_HANG_BAN chỉ chấp nhận delta > 0 (nhập đơn mới → tăng tồn kho).
+        if (selectedReason === 'NHAP_KHO_HANG_BAN' && n < 0) {
+            setError('Lý do "Nhập kho hàng bán" chỉ ghi nhận đơn nhập mới — delta phải là số DƯƠNG.');
+            return;
+        }
         if (!evidence) {
             setError('File minh chứng (.xlsx / .xls) là bắt buộc.');
             return;
@@ -321,6 +327,10 @@ function AdjustModal({ target, onClose, onDone }) {
     // (sẽ bị backend reject).
     const showStorePurchaseWarn =
         selectedReason === 'MUA_HANG_TAI_CUA_HANG' && Number.isFinite(parsedDelta) && parsedDelta > 0;
+    // Cảnh báo UX khi chọn lý do "nhập kho hàng bán" mà delta đang âm
+    // (sẽ bị backend reject).
+    const showNhapKhoWarn =
+        selectedReason === 'NHAP_KHO_HANG_BAN' && Number.isFinite(parsedDelta) && parsedDelta < 0;
 
     const selectedReasonObj = ADJUSTMENT_REASONS.find(r => r.code === selectedReason);
 
@@ -353,6 +363,11 @@ function AdjustModal({ target, onClose, onDone }) {
                 {showStorePurchaseWarn && (
                     <p className="adjust-modal__warn">
                         ⚠️ Lý do "Mua hàng tại cửa hàng" yêu cầu delta ÂM (trừ tồn kho). Hãy nhập số nhỏ hơn 0, ví dụ -2.
+                    </p>
+                )}
+                {showNhapKhoWarn && (
+                    <p className="adjust-modal__warn">
+                        ⚠️ Lý do "Nhập kho hàng bán" yêu cầu delta DƯƠNG (tăng tồn kho). Hãy nhập số lớn hơn 0, ví dụ 10.
                     </p>
                 )}
 
@@ -469,6 +484,7 @@ function AdjustModal({ target, onClose, onDone }) {
 // ─────────────────────────────────────────────────────────────────────────────
 const REASON_LABELS = {
     MUA_HANG_TAI_CUA_HANG:{ label: 'Bán hàng tại cửa hàng',     icon: '🏪' },
+    NHAP_KHO_HANG_BAN:    { label: 'Nhập kho hàng bán',         icon: '📥' },
     DAMAGE_STOCK:      { label: 'Hàng hư hỏng tồn kho',           icon: '⚠️' },
     LOSS_THEFT:        { label: 'Hàng mất mát',                   icon: '🔎' },
     CUSTOMER_RETURN:   { label: 'Hàng trả lại từ khách',           icon: '↩️' },
