@@ -8,14 +8,14 @@
  * controller method. The role gates here are a UX nicety.
  */
 
-export const ALL_ROLES = ['ADMIN', 'SALES', 'WAREHOUSE', 'CONTENT'];
+export const ALL_ROLES = ['ADMIN', 'SALES', 'WAREHOUSE', 'CONTENT', 'DRIVER'];
 
 /**
  * CUSTOMER is explicitly NOT in this list — see LoginPage which rejects
  * any account whose role === 'CUSTOMER' before it ever reaches the
  * dashboard.
  */
-export const STAFF_ROLES = ['ADMIN', 'SALES', 'WAREHOUSE', 'CONTENT'];
+export const STAFF_ROLES = ['ADMIN', 'SALES', 'WAREHOUSE', 'CONTENT', 'DRIVER'];
 
 export function isStaffRole(role) {
     return role !== 'CUSTOMER' && !!role;
@@ -35,6 +35,7 @@ export const MENU = [
     { id: 'print-slips', label: 'Phiếu in', path: '/print-slips', icon: '🖨️', roles: ['ADMIN', 'WAREHOUSE'] },
     { id: 'orders', label: 'Đơn hàng', path: '/orders', icon: '🧾', roles: ['ADMIN', 'SALES'] },
     { id: 'prepare-orders', label: 'Chuẩn bị đơn', path: '/prepare-orders', icon: '📦', roles: ['ADMIN', 'WAREHOUSE'] },
+    { id: 'delivery', label: 'Chuyến xe', path: '/delivery', icon: '🚚', roles: ['ADMIN', 'WAREHOUSE'] },
     { id: 'customers', label: 'Khách hàng', path: '/customers', icon: '👥', roles: ['ADMIN', 'SALES'] },
     { id: 'promotions', label: 'Khuyến mãi', path: '/promotions', icon: '🎟️', roles: ['ADMIN'] },
     { id: 'reviews', label: 'Đánh giá', path: '/reviews', icon: '⭐', roles: ['ADMIN', 'CONTENT'] },
@@ -50,6 +51,7 @@ export function roleLabel(role) {
         case 'SALES': return 'Nhân viên bán hàng';
         case 'WAREHOUSE': return 'Nhân viên kho';
         case 'CONTENT': return 'Biên tập viên';
+        case 'DRIVER': return 'Tài xế';
         case 'CUSTOMER': return 'Khách hàng';
         default: return role;
     }

@@ -1,0 +1,110 @@
+/* ── DeliveryPage ─────────────────────────────────────────────────────────── */
+
+.delivery-page .admin-page__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* Tabs */
+.delivery-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 16px 0;
+}
+
+/* Search */
+.delivery-search {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+.delivery-search input {
+    flex: 1;
+    padding: 8px 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: var(--radius-md);
+    font-size: 14px;
+}
+.delivery-search input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+.btn-search {
+    padding: 8px 16px;
+    background: var(--color-primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 14px;
+}
+.btn-search:hover { opacity: 0.85; }
+
+/* Empty state */
+.delivery-empty {
+    text-align: center;
+    padding: 48px 24px;
+    color: #64748b;
+}
+.delivery-empty p { margin-bottom: 12px; }
+
+/* Table */
+.delivery-table-wrap {
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid #e2e8f0;
+}
+.delivery-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+.delivery-table thead tr {
+    background: #f8fafc;
+}
+.delivery-table th {
+    padding: 10px 12px;
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 2px solid #e2e8f0;
+    white-space: nowrap;
+}
+.delivery-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #1e293b;
+}
+.delivery-table tbody tr:hover { background: #f8fafc; }
+.delivery-table tbody tr:last-child td { border-bottom: none; }
+
+.text-muted { color: #94a3b8; font-size: 12px; }
+
+/* Status badges */
+.trip-status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+}
+.status--planning  { background: #e0f2fe; color: #0369a1; }
+.status--shipping  { background: #fef9c3; color: #854d0e; }
+.status--completed { background: #dcfce7; color: #15803d; }
+
+/* Loading + pagination */
+.delivery-loading {
+    text-align: center;
+    padding: 24px;
+    color: #64748b;
+}
+.delivery-pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 16px;
+    font-size: 13px;
+    color: #475569;
+}

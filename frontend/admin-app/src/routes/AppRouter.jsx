@@ -14,6 +14,7 @@ import OrderDetailPage from '../features/order/OrderDetailPage.jsx';
 import CustomerListPage from '../features/customer/CustomerListPage.jsx';
 import PromotionListPage from '../features/promotion/PromotionListPage.jsx';
 import ReviewListPage from '../features/review/ReviewListPage.jsx';
+import DeliveryPage from '../features/delivery/DeliveryPage.jsx';
 import NotFoundPage from '../pages/NotFoundPage.jsx';
 
 /**
@@ -61,6 +62,9 @@ export default function AppRouter() {
 
                 {/* Warehouse prepare — Task 12.6 */}
                 <Route path="/prepare-orders" element={<PrepareOrderPage />} />
+
+                {/* Delivery trips — chuyến xe giao hàng */}
+                <Route path="/delivery" element={<DeliveryPage />} />
 
                 {/* Orders / Customers / Promotions / Reviews — Task 12.5 */}
                 <Route path="/orders" element={<OrderListPage />} />
