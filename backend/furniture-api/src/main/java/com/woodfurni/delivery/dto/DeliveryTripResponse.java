@@ -25,6 +25,8 @@ public class DeliveryTripResponse {
     private String driverId;
     private String driverName;
     private String driverPhone;
+    private List<String> assemblerIds;
+    private List<String> assemblerNames;
     private int totalOrders;
     private double totalWeightKg;
     private double totalVolumeM3;

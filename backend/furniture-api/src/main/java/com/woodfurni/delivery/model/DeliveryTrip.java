@@ -11,6 +11,7 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Chuyến xe giao hàng — collection: "delivery_trips".
@@ -50,6 +51,12 @@ public class DeliveryTrip {
     private String driverName;
 
     private String driverPhone;
+
+    /** IDs của nhân viên lắp ráp (tối đa 2 người). */
+    private List<String> assemblerIds;
+
+    /** Tên nhân viên lắp ráp (snapshot). */
+    private List<String> assemblerNames;
 
     /** Số đơn gán cho chuyến. */
     private int totalOrders;

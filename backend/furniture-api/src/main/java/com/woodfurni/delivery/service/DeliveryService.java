@@ -33,13 +33,6 @@ import java.util.stream.Collectors;
 
 /**
  * Service chính cho module Chuyến xe.
- */
-@Slf4j
-@Service
-@RequiredArgsConstructor
-public class DeliveryService {
-
-    private static final int MAX_ASSEMBLERS_PER_TRIP = 2;
  *
  * Phương thức:
  *   - listEligibleOrders(): các đơn ở SHIPPING chưa gán vào chuyến nào.
@@ -58,6 +51,8 @@ public class DeliveryService {
 @Service
 @RequiredArgsConstructor
 public class DeliveryService {
+
+    private static final int MAX_ASSEMBLERS_PER_TRIP = 2;
 
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
@@ -180,6 +175,7 @@ public class DeliveryService {
             throw new IllegalArgumentException(
                     "Số lượng nhân viên lắp ráp không được vượt quá " + MAX_ASSEMBLERS_PER_TRIP);
         }
+
         TripCapacityResponse preview = previewCapacity(orderIds, vehicleTypeCode);
         // Chặn tạo nếu có lý do blocking (không phải warning).
         boolean blocking = preview.getReasons().stream().anyMatch(r -> !r.startsWith("⚠️"));
@@ -196,6 +192,16 @@ public class DeliveryService {
                 .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + driverId));
         String driverName = driver.getFullName();
         String driverPhone = driver.getPhone();
+
+        // Resolve assembler names if provided
+        List<String> assemblerNames = new ArrayList<>();
+        if (assemblerIds != null && !assemblerIds.isEmpty()) {
+            for (String assemblerId : assemblerIds) {
+                User assembler = userRepository.findById(assemblerId)
+                        .orElseThrow(() -> new EntityNotFoundException("Assembler not found: " + assemblerId));
+                assemblerNames.add(assembler.getFullName());
+            }
+        }
 
         DeliveryTrip trip = DeliveryTrip.builder()
                 .tripNumber(generateTripNumber())
@@ -214,6 +220,8 @@ public class DeliveryService {
                 .note(note)
                 .createdBy(createdByUserId)
                 .createdAt(Instant.now())
+                .assemblerIds(assemblerIds)
+                .assemblerNames(assemblerNames)
                 .build();
 
         DeliveryTrip saved = tripRepository.save(trip);
@@ -239,7 +247,7 @@ public class DeliveryService {
             tripOrderRepository.save(link);
         }
 
-        log.info("[DeliveryTrip] Created {} with {} orders, weight={}kg, volume={}m³",
+        log.info("[DeliveryTrip] Created {} with {} orders, weight={}kg, volume={}m3",
                 saved.getTripNumber(), saved.getTotalOrders(),
                 saved.getTotalWeightKg(), saved.getTotalVolumeM3());
 
@@ -375,6 +383,8 @@ public class DeliveryService {
                 .driverId(t.getDriverId())
                 .driverName(t.getDriverName())
                 .driverPhone(t.getDriverPhone())
+                .assemblerIds(t.getAssemblerIds())
+                .assemblerNames(t.getAssemblerNames())
                 .totalOrders(t.getTotalOrders())
                 .totalWeightKg(round1(t.getTotalWeightKg()))
                 .totalVolumeM3(round2(t.getTotalVolumeM3()))
