@@ -9,6 +9,7 @@ package com.woodfurni.inventory.enums;
  * trong luồng điều chỉnh tồn kho.
  *
  * Mapping từ reasonCode trong InventoryHistory.reasonCode:
+ *   MUA_TAI_CUA_HANG    ←  MUA_HANG_TAI_CUA_HANG
  *   NHAP_KHO       ←  IMPORT
  *   XUAT_KHO       ←  EXPORT
  *   HU_HONG        ←  DAMAGE
@@ -18,6 +19,7 @@ package com.woodfurni.inventory.enums;
  *   THANH_LY       ←  LIQUIDATION
  */
 public enum PrintSlipType {
+    MUA_TAI_CUA_HANG("Phiếu bán hàng tại cửa hàng", "Mau-phieu-mua-tai-cua-hang"),
     NHAP_KHO("Phiếu nhập kho", "Mau-phieu-nhap-kho"),
     XUAT_KHO("Phiếu xuất kho", "Mau-phieu-xuat-kho"),
     HU_HONG("Phiếu hàng hư hỏng", "Mau-phieu-hu-hong"),

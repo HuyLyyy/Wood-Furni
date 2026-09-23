@@ -389,6 +389,11 @@ public class InventoryService {
         if (productId == null || productId.isBlank()) {
             throw new EntityNotFoundException("Invalid productId: " + productId);
         }
+        // MUA_HANG_TAI_CUA_HANG là đơn bán lẻ tại quầy → chỉ được trừ tồn kho (delta < 0).
+        if (request.getReasonCode() == AdjustmentReason.MUA_HANG_TAI_CUA_HANG && request.getDelta() > 0) {
+            throw new IllegalArgumentException(
+                    "Lý do 'Mua hàng tại cửa hàng' chỉ ghi nhận đơn bán lẻ → delta phải là số ÂM (trừ tồn kho).");
+        }
 
         int delta = request.getDelta();
         EvidenceStorageService.StoredFileWithId stored = evidenceStorageService.save(evidence);
@@ -448,6 +453,7 @@ public class InventoryService {
     private static String describeReason(AdjustmentReason code) {
         if (code == null) return null;
         return switch (code) {
+            case MUA_HANG_TAI_CUA_HANG -> "Bán hàng tại cửa hàng";
             case DAMAGE_STOCK -> "Hàng hư hỏng tồn kho";
             case LOSS_THEFT -> "Hàng mất mát";
             case CUSTOMER_RETURN -> "Hàng trả lại từ khách";

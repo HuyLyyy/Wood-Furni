@@ -224,9 +224,11 @@ function DotsMenu({ product, onAdjust, onHistory, onDetail, canAdjust }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Fixed adjustment reasons (matches backend AdjustmentReason enum).
-// Order: damage → loss → return → stocktake → liquidation (increasing severity).
+// Order: store-purchase → damage → loss → return → stocktake → liquidation.
+// MUA_HANG_TAI_CUA_HANG chỉ nhận delta < 0 (bán lẻ tại quầy → trừ tồn kho).
 // ─────────────────────────────────────────────────────────────────────────────
 const ADJUSTMENT_REASONS = [
+    { code: 'MUA_HANG_TAI_CUA_HANG', label: 'Mua hàng tại cửa hàng',       hint: 'Ghi nhận đơn bán lẻ tại quầy — chỉ được trừ tồn kho (delta < 0). Upload phiếu in "Mua tại cửa hàng" làm minh chứng.' },
     { code: 'DAMAGE_STOCK',       label: 'Hàng hư hỏng tồn kho',           hint: 'Mối mọt, ẩm mốc, vỡ khi lưu kho' },
     { code: 'LOSS_THEFT',          label: 'Hàng mất mát',                  hint: 'Thất lạc, trộm trong kho / vận chuyển' },
     { code: 'CUSTOMER_RETURN',     label: 'Hàng trả lại từ khách',          hint: 'Khách đổi / trả — nhập lại kho hoặc loại bỏ' },
@@ -281,6 +283,11 @@ function AdjustModal({ target, onClose, onDone }) {
             setError('Vui lòng chọn lý do điều chỉnh.');
             return;
         }
+        // MUA_HANG_TAI_CUA_HANG chỉ chấp nhận delta < 0 (bán lẻ tại quầy → trừ tồn kho).
+        if (selectedReason === 'MUA_HANG_TAI_CUA_HANG' && n > 0) {
+            setError('Lý do "Mua hàng tại cửa hàng" chỉ ghi nhận đơn bán lẻ — delta phải là số ÂM.');
+            return;
+        }
         if (!evidence) {
             setError('File minh chứng (.xlsx / .xls) là bắt buộc.');
             return;
@@ -306,9 +313,14 @@ function AdjustModal({ target, onClose, onDone }) {
         }
     };
 
-    const preview = Number.isFinite(parseInt(delta, 10))
-        ? `Tồn kho mới ≈ ${formatNumber((target.quantityOnHand || 0) + parseInt(delta, 10))}`
+    const parsedDelta = parseInt(delta, 10);
+    const preview = Number.isFinite(parsedDelta)
+        ? `Tồn kho mới ≈ ${formatNumber((target.quantityOnHand || 0) + parsedDelta)}`
         : null;
+    // Cảnh báo UX khi chọn lý do "mua tại cửa hàng" mà delta đang dương
+    // (sẽ bị backend reject).
+    const showStorePurchaseWarn =
+        selectedReason === 'MUA_HANG_TAI_CUA_HANG' && Number.isFinite(parsedDelta) && parsedDelta > 0;
 
     const selectedReasonObj = ADJUSTMENT_REASONS.find(r => r.code === selectedReason);
 
@@ -338,6 +350,11 @@ function AdjustModal({ target, onClose, onDone }) {
                     />
                 </FormField>
                 {preview && <p className="adjust-modal__preview">{preview}</p>}
+                {showStorePurchaseWarn && (
+                    <p className="adjust-modal__warn">
+                        ⚠️ Lý do "Mua hàng tại cửa hàng" yêu cầu delta ÂM (trừ tồn kho). Hãy nhập số nhỏ hơn 0, ví dụ -2.
+                    </p>
+                )}
 
                 {/* Reason checklist */}
                 <div className="adj-reason-section">
@@ -451,6 +468,7 @@ function AdjustModal({ target, onClose, onDone }) {
 // Reason code → display label (mirrors backend AdjustmentReason + describeReason).
 // ─────────────────────────────────────────────────────────────────────────────
 const REASON_LABELS = {
+    MUA_HANG_TAI_CUA_HANG:{ label: 'Bán hàng tại cửa hàng',     icon: '🏪' },
     DAMAGE_STOCK:      { label: 'Hàng hư hỏng tồn kho',           icon: '⚠️' },
     LOSS_THEFT:        { label: 'Hàng mất mát',                   icon: '🔎' },
     CUSTOMER_RETURN:   { label: 'Hàng trả lại từ khách',           icon: '↩️' },

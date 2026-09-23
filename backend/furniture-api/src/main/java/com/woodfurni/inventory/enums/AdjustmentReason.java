@@ -8,6 +8,8 @@ package com.woodfurni.inventory.enums;
  * consistent and reportable.
  */
 public enum AdjustmentReason {
+    /** Bán hàng trực tiếp tại cửa hàng (ghi nhận đơn bán lẻ, trừ tồn kho). */
+    MUA_HANG_TAI_CUA_HANG,
     /** Hư hỏng trong kho (mối mọt, ẩm mốc, vỡ… không do khách). */
     DAMAGE_STOCK,
     /** Mất mát / thất thoát trong kho (trộm, thất lạc khi di chuyển). */
