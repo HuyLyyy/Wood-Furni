@@ -72,11 +72,16 @@ class OrderServiceTrackingUpdateTest {
         notificationClient = mock(NotificationClient.class);
         shippingService = mock(ShippingService.class);
         MongoTemplate mongoTemplate = mock(MongoTemplate.class);
+        com.woodfurni.delivery.repository.DeliveryTripOrderRepository tripOrderRepo =
+                mock(com.woodfurni.delivery.repository.DeliveryTripOrderRepository.class);
+        com.woodfurni.delivery.repository.DeliveryTripRepository tripRepo =
+                mock(com.woodfurni.delivery.repository.DeliveryTripRepository.class);
 
         orderService = new OrderService(
                 orderRepository, cartRepository, userRepository,
                 inventoryService, paymentService, promotionService,
-                notificationClient, shippingService, mongoTemplate);
+                notificationClient, shippingService, mongoTemplate,
+                tripOrderRepo, tripRepo);
 
         // Order saved → return what was passed (so chained reads see the
         // mutations we just made: tracking updates + status flip).

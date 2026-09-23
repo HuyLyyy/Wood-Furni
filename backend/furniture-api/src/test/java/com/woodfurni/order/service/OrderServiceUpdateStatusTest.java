@@ -57,6 +57,8 @@ class OrderServiceUpdateStatusTest {
     @Mock private PaymentService paymentService;
     @Mock private PromotionService promotionService;
     @Mock private NotificationClient notificationClient;
+    @Mock private com.woodfurni.delivery.repository.DeliveryTripOrderRepository deliveryTripOrderRepository;
+    @Mock private com.woodfurni.delivery.repository.DeliveryTripRepository deliveryTripRepository;
 
     @InjectMocks private OrderService orderService;
 

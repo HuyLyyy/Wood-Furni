@@ -90,11 +90,16 @@ class OrderServiceCheckoutTest {
         notificationClient = mock(NotificationClient.class);
         shippingService = mock(ShippingService.class);
         mongoTemplate = mock(MongoTemplate.class);
+        com.woodfurni.delivery.repository.DeliveryTripOrderRepository tripOrderRepo =
+                mock(com.woodfurni.delivery.repository.DeliveryTripOrderRepository.class);
+        com.woodfurni.delivery.repository.DeliveryTripRepository tripRepo =
+                mock(com.woodfurni.delivery.repository.DeliveryTripRepository.class);
 
         orderService = new OrderService(
                 orderRepository, cartRepository, userRepository,
                 inventoryService, paymentService, promotionService,
-                notificationClient, shippingService, mongoTemplate);
+                notificationClient, shippingService, mongoTemplate,
+                tripOrderRepo, tripRepo);
 
         // Cart with 2 items: 2x 500k + 1x 300k = 1,300,000
         CartItem itemA = CartItem.builder()
