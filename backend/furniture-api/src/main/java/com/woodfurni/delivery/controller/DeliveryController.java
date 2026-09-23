@@ -85,6 +85,7 @@ public class DeliveryController {
                 request.getOrderIds(),
                 request.getVehicleTypeCode(),
                 request.getDriverId(),
+                request.getAssemblerIds(),
                 request.getNote(),
                 createdBy);
         return ResponseEntity.ok(ApiResponse.success("Đã tạo chuyến xe.", trip));

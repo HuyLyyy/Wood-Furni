@@ -16,7 +16,5 @@ public enum Role {
     CONTENT,
     ADMIN,
     /** Tài xế giao hàng — dùng cho module Chuyến xe (delivery). */
-    DRIVER,
-    /** Nhân viên lắp ráp phụ trợ — đi cùng chuyến xe hỗ trợ bốc dỡ/lắp đặt. */
-    ASSEMBLER
+    DRIVER
 }

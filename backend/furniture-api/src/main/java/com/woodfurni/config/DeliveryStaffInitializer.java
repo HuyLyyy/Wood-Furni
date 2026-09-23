@@ -77,7 +77,7 @@ public class DeliveryStaffInitializer implements CommandLineRunner {
     private User createDriverUser(String code, String fullName, String email, String phone) {
         return User.builder()
                 .email(email)
-                .password(passwordEncoder.encode(DEFAULT_PASSWORD))
+                .passwordHash(passwordEncoder.encode(DEFAULT_PASSWORD))
                 .fullName(fullName)
                 .phone(phone)
                 .role(Role.DRIVER)
@@ -89,7 +89,7 @@ public class DeliveryStaffInitializer implements CommandLineRunner {
     private User createAssemblerUser(String code, String fullName, String email, String phone) {
         return User.builder()
                 .email(email)
-                .password(passwordEncoder.encode(DEFAULT_PASSWORD))
+                .passwordHash(passwordEncoder.encode(DEFAULT_PASSWORD))
                 .fullName(fullName)
                 .phone(phone)
                 .role(Role.ASSEMBLER)

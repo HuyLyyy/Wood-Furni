@@ -25,9 +25,6 @@ public class DeliveryTripResponse {
     private String driverId;
     private String driverName;
     private String driverPhone;
-    /** Snapshot tên các lắp ráp kèm chuyến (0–2 người). */
-    @Builder.Default
-    private List<String> assemblers = new ArrayList<>();
     private int totalOrders;
     private double totalWeightKg;
     private double totalVolumeM3;

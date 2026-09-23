@@ -33,6 +33,13 @@ import java.util.stream.Collectors;
 
 /**
  * Service chính cho module Chuyến xe.
+ */
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class DeliveryService {
+
+    private static final int MAX_ASSEMBLERS_PER_TRIP = 2;
  *
  * Phương thức:
  *   - listEligibleOrders(): các đơn ở SHIPPING chưa gán vào chuyến nào.
@@ -161,8 +168,6 @@ public class DeliveryService {
 
     /**
      * Tạo chuyến xe. Validate trước — nếu không fits → throw exception.
-     *
-     * @param assemblerIds danh sách user id lắp ráp phụ trợ đi kèm (tối đa 2). null/empty OK.
      */
     public DeliveryTripResponse createTrip(List<String> orderIds,
                                            String vehicleTypeCode,
@@ -170,6 +175,11 @@ public class DeliveryService {
                                            List<String> assemblerIds,
                                            String note,
                                            String createdByUserId) {
+        // Validate assembler count
+        if (assemblerIds != null && assemblerIds.size() > MAX_ASSEMBLERS_PER_TRIP) {
+            throw new IllegalArgumentException(
+                    "Số lượng nhân viên lắp ráp không được vượt quá " + MAX_ASSEMBLERS_PER_TRIP);
+        }
         TripCapacityResponse preview = previewCapacity(orderIds, vehicleTypeCode);
         // Chặn tạo nếu có lý do blocking (không phải warning).
         boolean blocking = preview.getReasons().stream().anyMatch(r -> !r.startsWith("⚠️"));
@@ -187,34 +197,6 @@ public class DeliveryService {
         String driverName = driver.getFullName();
         String driverPhone = driver.getPhone();
 
-        // Resolve assemblers (0–2). Validate từng id có tồn tại và có role ASSEMBLER.
-        List<String> assemblerIdsClean = assemblerIds == null ? Collections.emptyList() : assemblerIds;
-        // Loại bỏ trùng + null/blank
-        List<String> dedupIds = assemblerIdsClean.stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .distinct()
-                .collect(Collectors.toList());
-        if (dedupIds.size() > MAX_ASSEMBLERS_PER_TRIP) {
-            throw new IllegalArgumentException(
-                    "Mỗi chuyến xe chỉ được chọn tối đa " + MAX_ASSEMBLERS_PER_TRIP + " nhân viên lắp ráp.");
-        }
-        List<String> assemblerNames = new ArrayList<>();
-        for (String aid : dedupIds) {
-            if (aid.equals(driverId)) {
-                throw new IllegalArgumentException(
-                        "Không thể chọn cùng 1 người vừa làm tài xế vừa lắp ráp: " + aid);
-            }
-            User a = userRepository.findById(aid)
-                    .orElseThrow(() -> new EntityNotFoundException("Assembler not found: " + aid));
-            if (a.getRole() != com.woodfurni.auth.enums.Role.ASSEMBLER) {
-                throw new IllegalArgumentException(
-                        "User " + aid + " không phải nhân viên lắp ráp (role ASSEMBLER).");
-            }
-            assemblerNames.add(a.getFullName());
-        }
-
         DeliveryTrip trip = DeliveryTrip.builder()
                 .tripNumber(generateTripNumber())
                 .status(DeliveryTripStatus.PLANNING)
@@ -223,8 +205,6 @@ public class DeliveryService {
                 .driverId(driverId)
                 .driverName(driverName)
                 .driverPhone(driverPhone)
-                .assemblerIds(new ArrayList<>(dedupIds))
-                .assemblerNames(assemblerNames)
                 .totalOrders(agg.totalOrders)
                 .totalWeightKg(agg.totalWeightKg)
                 .totalVolumeM3(agg.totalVolumeM3)
@@ -259,10 +239,9 @@ public class DeliveryService {
             tripOrderRepository.save(link);
         }
 
-        log.info("[DeliveryTrip] Created {} with {} orders, weight={}kg, volume={}m³, drivers={}, assemblers={}",
+        log.info("[DeliveryTrip] Created {} with {} orders, weight={}kg, volume={}m³",
                 saved.getTripNumber(), saved.getTotalOrders(),
-                saved.getTotalWeightKg(), saved.getTotalVolumeM3(),
-                driverName, assemblerNames);
+                saved.getTotalWeightKg(), saved.getTotalVolumeM3());
 
         return toTripResponse(saved, true);
     }

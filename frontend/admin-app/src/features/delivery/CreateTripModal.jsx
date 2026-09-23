@@ -158,39 +158,19 @@ export default function CreateTripModal({ onClose, onDone }) {
 
     const canProceed2 = selectedVehicle && capacityResult?.fits === true;
 
-    // ── Step 3: driver + assemblers ────────────────────────────────────────
+    // ── Step 3: driver ────────────────────────────────────────────────────────
     const [drivers, setDrivers] = useState([]);
-    const [assemblers, setAssemblers] = useState([]);
     const [selectedDriverId, setSelectedDriverId] = useState('');
-    const [selectedAssemblerIds, setSelectedAssemblerIds] = useState(new Set());
     const [loadingDrivers, setLoadingDrivers] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState(null);
 
     useEffect(() => {
-        Promise.all([
-            userApi.listDrivers(),
-            userApi.listAssemblers(),
-        ])
-            .then(([driverList, assemblerList]) => {
-                setDrivers(driverList || []);
-                setAssemblers(assemblerList || []);
-            })
-            .catch(() => toast.error('Không thể tải danh sách tài xế / lắp ráp'))
+        userApi.listDrivers()
+            .then(setDrivers)
+            .catch(() => toast.error('Không thể tải danh sách tài xế'))
             .finally(() => setLoadingDrivers(false));
     }, []);
-
-    const toggleAssembler = (assemblerId) => {
-        setSelectedAssemblerIds(prev => {
-            const next = new Set(prev);
-            if (next.has(assemblerId)) {
-                next.delete(assemblerId);
-            } else if (next.size < 2) {
-                next.add(assemblerId);
-            }
-            return next;
-        });
-    };
 
     const handleCreate = async () => {
         if (!selectedDriverId) {
@@ -204,7 +184,6 @@ export default function CreateTripModal({ onClose, onDone }) {
                 orderIds: Array.from(selectedOrderIds),
                 vehicleTypeCode: selectedVehicle,
                 driverId: selectedDriverId,
-                assemblerIds: Array.from(selectedAssemblerIds),
             });
             toast.success('Đã tạo chuyến xe thành công!');
             onDone();
@@ -425,46 +404,6 @@ export default function CreateTripModal({ onClose, onDone }) {
                                     </label>
                                 ))}
                             </div>
-                        )}
-                    </div>
-
-                    {/* Assembler selection */}
-                    <div className="step3-section">
-                        <div className="step3-section-label">
-                            Chọn nhân viên lắp ráp (tối đa 2 người)
-                        </div>
-                        {loadingDrivers && <p className="step-loading">Đang tải danh sách lắp ráp…</p>}
-                        {!loadingDrivers && assemblers.length === 0 && (
-                            <p className="step-empty">
-                                Chưa có nhân viên lắp ráp nào.
-                            </p>
-                        )}
-                        {!loadingDrivers && assemblers.length > 0 && (
-                            <div className="driver-list">
-                                {assemblers.map(a => (
-                                    <label
-                                        key={a.id}
-                                        className={`driver-item ${selectedAssemblerIds.has(a.id) ? 'is-selected' : ''}`}
-                                        style={{ opacity: !selectedAssemblerIds.has(a.id) && selectedAssemblerIds.size >= 2 ? 0.5 : 1 }}
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedAssemblerIds.has(a.id)}
-                                            onChange={() => toggleAssembler(a.id)}
-                                            disabled={!selectedAssemblerIds.has(a.id) && selectedAssemblerIds.size >= 2}
-                                        />
-                                        <div className="driver-item__inner">
-                                            <strong>{a.fullName}</strong>
-                                            <span>{a.phone || a.email}</span>
-                                        </div>
-                                    </label>
-                                ))}
-                            </div>
-                        )}
-                        {selectedAssemblerIds.size > 0 && (
-                            <p className="step-hint">
-                                Đã chọn {selectedAssemblerIds.size}/2 nhân viên lắp ráp
-                            </p>
                         )}
                     </div>
 

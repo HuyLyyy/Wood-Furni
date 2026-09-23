@@ -11,8 +11,6 @@ import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Chuyến xe giao hàng — collection: "delivery_trips".
@@ -44,7 +42,7 @@ public class DeliveryTrip {
     /** Tên hiển thị của loại xe (snapshot tại thời điểm tạo). */
     private String vehicleTypeName;
 
-    /** User id của tài xế được gán (đúng 1). */
+    /** User id của tài xế được gán. */
     @Indexed
     private String driverId;
 
@@ -52,17 +50,6 @@ public class DeliveryTrip {
     private String driverName;
 
     private String driverPhone;
-
-    /**
-     * User ids của nhân viên lắp ráp phụ trợ đi kèm chuyến (0–2 người).
-     * Tối đa 2 được validate trong service.
-     */
-    @Builder.Default
-    private List<String> assemblerIds = new ArrayList<>();
-
-    /** Snapshot tên các lắp ráp tương ứng (cùng index với assemblerIds). */
-    @Builder.Default
-    private List<String> assemblerNames = new ArrayList<>();
 
     /** Số đơn gán cho chuyến. */
     private int totalOrders;
