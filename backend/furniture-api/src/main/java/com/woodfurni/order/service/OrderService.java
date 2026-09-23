@@ -1330,6 +1330,10 @@ public class OrderService {
 
         Order saved = orderRepository.save(order);
 
+        // Sau khi nhận/trả hàng → check auto-complete trip
+        // (finalStatus có thể là DELIVERED hoặc CANCELLED đều được coi là đã "đóng")
+        tryAutoCompleteTripForOrder(saved.getId(), actorUserId);
+
         // Notify customer
         notificationClient.notifyOrderStatus(
                 saved.getId(),
