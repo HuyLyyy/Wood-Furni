@@ -426,6 +426,17 @@ export default function OrderDetailPage() {
                         </tbody>
                     </table>
                 </section>
+
+                {/* Customer Note */}
+                {order.customerNote && (
+                    <section className="order-detail-page__section">
+                        <h3>Ghi chú của khách hàng</h3>
+                        <div className="customer-note-box">
+                            <span className="customer-note-box__icon">📝</span>
+                            <p className="customer-note-box__text">{order.customerNote}</p>
+                        </div>
+                    </section>
+                )}
             </div>
 
             <aside className="order-detail-page__side">

@@ -43,6 +43,8 @@ public class OrderResponse {
     private String cancelReason;
     /** Timestamp of cancellation, mirrored from statusHistory. */
     private Instant cancelledAt;
+    /** Customer's note entered during checkout (delivery instructions, special requests). */
+    private String customerNote;
     private Instant createdAt;
     private Instant updatedAt;
 }

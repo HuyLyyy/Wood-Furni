@@ -260,6 +260,7 @@ public class OrderService {
                     .status(OrderStatus.PENDING)
                     .paymentStatus(PaymentStatus.UNPAID)
                     .statusHistory(new ArrayList<>())
+                    .customerNote(request.getCustomerNote())
                     .build();
 
             order.addStatusHistory(OrderStatus.PENDING.name(), userId);
@@ -1457,6 +1458,7 @@ public class OrderService {
                 .trackingUpdates(order.getTrackingUpdates())
                 .cancelReason(order.getCancelReason())
                 .cancelledAt(order.getCancelledAt())
+                .customerNote(order.getCustomerNote())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .build();

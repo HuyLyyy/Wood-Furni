@@ -44,4 +44,10 @@ public class CheckoutRequest {
      * Null or empty means "checkout everything".
      */
     private List<String> productIds;
+
+    /**
+     * Customer's note for this order (e.g. delivery instructions, special requests).
+     * Optional free-text field, max 500 characters.
+     */
+    private String customerNote;
 }

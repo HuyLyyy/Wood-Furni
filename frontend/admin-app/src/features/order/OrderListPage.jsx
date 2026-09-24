@@ -73,6 +73,14 @@ export default function OrderListPage() {
                 return <span className={`status-badge status-badge--${tone}`}>{statusLabel(o.status)}</span>;
             },
         },
+        {
+            key: 'customerNote', header: 'Ghi chú', width: 100,
+            render: (o) => (
+                o.customerNote
+                    ? <span className="order-note-badge" title={o.customerNote}>📝</span>
+                    : <span style={{ color: '#cbd5e1' }}>—</span>
+            ),
+        },
     ];
 
     return (

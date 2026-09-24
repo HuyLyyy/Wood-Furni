@@ -61,6 +61,14 @@
 .status-badge--danger  { background: #fee2e2; color: #991b1b; }
 .status-badge--mute    { background: #f1f5f9; color: #64748b; }
 
+.order-note-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    cursor: default;
+}
+
 @media (max-width: 900px) {
     .order-list-page__filters {
         grid-template-columns: repeat(2, minmax(0, 1fr));

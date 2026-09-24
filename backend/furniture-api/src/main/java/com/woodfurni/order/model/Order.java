@@ -101,6 +101,12 @@ public class Order {
      */
     private Instant cancelledAt;
 
+    /**
+     * Customer's note for this order (e.g. delivery instructions, special requests).
+     * Optional free-text field entered during checkout.
+     */
+    private String customerNote;
+
     @CreatedDate
     private Instant createdAt;
 

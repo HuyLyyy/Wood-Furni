@@ -77,6 +77,9 @@ export default function CheckoutPage() {
     // ── payment ───────────────────────────────────────────────────────────────
     const [paymentMethod, setPaymentMethod] = useState('COD');
 
+    // ── customer note ─────────────────────────────────────────────────────────
+    const [customerNote, setCustomerNote] = useState('');
+
     // ── submit ───────────────────────────────────────────────────────────────
     const [submitting, setSubmitting] = useState(false);
 
@@ -351,6 +354,7 @@ export default function CheckoutPage() {
                 promotionCode: voucherPreview?.valid ? voucherCode.trim().toUpperCase() : null,
                 paymentMethod,
                 productIds: initialProductIds.length > 0 ? initialProductIds : null,
+                customerNote: customerNote.trim() || null,
             });
 
             // Sync: if the backend-computed shipping fee differs from our preview,
@@ -588,10 +592,27 @@ export default function CheckoutPage() {
                         </div>
                     </section>
 
+                    {/* ===== Customer Note ===== */}
+                    <section className="checkout-section">
+                        <h2 className="checkout-section__title">3. Ghi chú (tuỳ chọn)</h2>
+                        <textarea
+                            className="checkout-note"
+                            placeholder="Ví dụ: Giao hàng buổi sáng, gọi trước khi giao, lắp đặt cẩn thận..."
+                            value={customerNote}
+                            onChange={(e) => {
+                                if (e.target.value.length <= 500) {
+                                    setCustomerNote(e.target.value);
+                                }
+                            }}
+                            rows={3}
+                        />
+                        <p className="checkout-note__hint">{customerNote.length}/500 ký tự</p>
+                    </section>
+
                     {/* ===== Items summary ===== */}
                     <section className="checkout-section">
                         <h2 className="checkout-section__title">
-                            3. Sản phẩm ({checkoutItems.length}
+                            4. Sản phẩm ({checkoutItems.length}
                             {checkoutItems.length < items.length ? `/${items.length}` : ''})
                         </h2>
                         <ul className="checkout-items">
