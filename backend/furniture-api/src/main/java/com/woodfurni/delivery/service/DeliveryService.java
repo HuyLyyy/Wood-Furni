@@ -368,6 +368,11 @@ public class DeliveryService {
     /**
      * Hủy chuyến xe — chuyến chuyển sang CANCELLED.
      * Chỉ chuyến ở trạng thái PLANNING mới được hủy.
+     *
+     * Khi hủy:
+     * 1. Các đơn hàng trong chuyến được chuyển về PROCESSING (chưa giao)
+     *    để Warehouse có thể tạo chuyến xe mới.
+     * 2. Xóa các bản ghi join giữa trip và orders.
      */
     public DeliveryTripResponse cancelTrip(String tripId, String reason, String performedBy) {
         DeliveryTrip t = tripRepository.findById(tripId)
@@ -378,13 +383,36 @@ public class DeliveryService {
                     "Chỉ chuyến ở trạng thái LÊN KẾ HOẠCH mới có thể hủy. Trạng thái hiện tại: " + t.getStatus());
         }
 
+        // ── 1. Restore order statuses back to PROCESSING ──────────────────
+        List<DeliveryTripOrder> tripOrders = tripOrderRepository.findByTripIdOrderBySequenceAsc(tripId);
+        List<String> restoredOrderNumbers = new ArrayList<>();
+        for (DeliveryTripOrder link : tripOrders) {
+            try {
+                Order order = orderRepository.findById(link.getOrderId()).orElse(null);
+                if (order != null && order.getStatus() == OrderStatus.SHIPPING) {
+                    order.setStatus(OrderStatus.PROCESSING);
+                    order.addStatusHistory(OrderStatus.PROCESSING.name(), performedBy,
+                            "Chuyến xe " + t.getTripNumber() + " bị hủy — chờ tạo chuyến mới");
+                    orderRepository.save(order);
+                    restoredOrderNumbers.add(order.getOrderNumber());
+                }
+            } catch (Exception e) {
+                log.warn("[DeliveryTrip] Failed to restore order {}: {}", link.getOrderId(), e.getMessage());
+            }
+        }
+
+        // ── 2. Delete trip-order join records ─────────────────────────────
+        tripOrderRepository.deleteByTripId(tripId);
+
+        // ── 3. Cancel the trip ────────────────────────────────────────────
         t.setStatus(DeliveryTripStatus.CANCELLED);
         t.setCancelledAt(Instant.now());
         t.setCancelledBy(performedBy);
         t.setCancelReason(reason);
 
         DeliveryTrip saved = tripRepository.save(t);
-        log.info("[DeliveryTrip] {} cancelled by {} - reason: {}", saved.getTripNumber(), performedBy, reason);
+        log.info("[DeliveryTrip] {} cancelled by {} - restored {} orders to PROCESSING: {}",
+                saved.getTripNumber(), performedBy, restoredOrderNumbers.size(), restoredOrderNumbers);
 
         return toTripResponse(saved, true);
     }
