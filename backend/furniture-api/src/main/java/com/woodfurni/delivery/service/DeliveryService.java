@@ -68,8 +68,10 @@ public class DeliveryService {
     // ───────────────────────────────────────────────────────────────────────
 
     /**
-     * Lấy các đơn SHIPPING — chưa được gán vào chuyến nào.
-     * Mỗi đơn được bổ sung metrics (weight, volume, dim) từ Product.
+     * Lấy các đơn hàng có thể gán vào chuyến xe mới.
+     * Bao gồm:
+     *  - Đơn SHIPPING chưa gán trip nào (đang chờ giao)
+     *  - Đơn PROCESSING chưa gán trip nào (đang chờ tạo trip mới sau khi trip bị hủy)
      *
      * @param search từ khoá tìm theo orderNumber (substring, optional)
      * @param page   trang
@@ -77,25 +79,45 @@ public class DeliveryService {
      */
     public Page<EligibleOrderResponse> listEligibleOrders(String search, int page, int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Order> orders = (search != null && !search.isBlank())
-                ? orderRepository.findByOrderNumberContaining(search, pageable)
-                : orderRepository.findByStatus(OrderStatus.SHIPPING, pageable);
 
-        // Filter: chỉ đơn chưa gán trip nào.
+        // Load all PROCESSING and SHIPPING orders
+        List<Order> allOrders = new ArrayList<>();
+        if (search != null && !search.isBlank()) {
+            Page<Order> bySearch = orderRepository.findByOrderNumberContaining(search, pageable);
+            allOrders.addAll(bySearch.getContent());
+        } else {
+            allOrders.addAll(orderRepository.findByStatus(OrderStatus.PROCESSING, pageable).getContent());
+            allOrders.addAll(orderRepository.findByStatus(OrderStatus.SHIPPING, pageable).getContent());
+        }
+
+        // Filter: chỉ đơn chưa gán trip nào và có status phù hợp (PROCESSING hoặc SHIPPING)
         List<Order> filtered = new ArrayList<>();
-        for (Order o : orders.getContent()) {
-            if (o.getStatus() != OrderStatus.SHIPPING) continue;
+        for (Order o : allOrders) {
+            if (o.getStatus() != OrderStatus.PROCESSING && o.getStatus() != OrderStatus.SHIPPING) continue;
             if (!tripOrderRepository.existsByOrderId(o.getId())) {
                 filtered.add(o);
             }
         }
-        // Lưu ý: totalElements của page sẽ bị sai vì filter in-memory; cho UX đơn giản
-        // ta trả totalElements = filtered.size() + (có thêm trang hay không).
-        boolean hasMore = filtered.size() == size && orders.hasNext();
-        List<EligibleOrderResponse> mapped = filtered.stream()
+
+        // Sort by createdAt desc and deduplicate
+        filtered.sort((a, b) -> {
+            if (a.getCreatedAt() == null && b.getCreatedAt() == null) return 0;
+            if (a.getCreatedAt() == null) return 1;
+            if (b.getCreatedAt() == null) return -1;
+            return b.getCreatedAt().compareTo(a.getCreatedAt());
+        });
+
+        // Paginate filtered results
+        int fromIndex = 0;
+        int toIndex = Math.min(size, filtered.size());
+        List<Order> pageContent = filtered.subList(fromIndex, toIndex);
+
+        List<EligibleOrderResponse> mapped = pageContent.stream()
                 .map(this::toEligibleOrder)
                 .collect(Collectors.toList());
-        return new org.springframework.data.domain.PageImpl<>(mapped, pageable, hasMore ? (long)(page + 2) * size : (long)filtered.size());
+
+        boolean hasMore = filtered.size() > size;
+        return new org.springframework.data.domain.PageImpl<>(mapped, pageable, hasMore ? (long)filtered.size() : (long)pageContent.size());
     }
 
     /**
