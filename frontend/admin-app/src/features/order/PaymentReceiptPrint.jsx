@@ -3,29 +3,31 @@ import { formatDateTime, formatCurrency } from '../../utils/format.js';
 /**
  * PaymentReceiptPrint
  *
- * Vietnamese-style payment receipt (biên nhận thu tiền) modelled on the
- * common "phiếu thu" template:
- *   - Top: Socialist Republic banner
- *   - "WOODFURNI" issuer line
- *   - "BIÊN NHẬN THU TIỀN" heading (bold, underlined)
- *   - Two-column field grid (order code, payer name, phone, address,
- *     reason, amount in figures, amount in words)
- *   - Checkboxes for payment method (Tiền mặt / Chuyển khoản / COD / Kết hợp)
- *   - Signatures: Người nộp tiền + Người thu tiền
- *   - Date placeholders under each signature
+ * Vietnamese-style payment receipt (biên nhận thu tiền) theo mẫu:
+ *   - Mã đơn hàng
+ *   - Ngày đơn hàng
+ *   - Tên cửa hàng: WOODFURNI
+ *   - Tên khách hàng
+ *   - Địa chỉ giao hàng
+ *   - Khung tên sản phẩm (table: STT | Tên SP | SL | Thành tiền)
+ *   - Tổng tiền hàng
+ *   - Số lượng sản phẩm
+ *   - Hình thức thanh toán
+ *   - Số tiền bằng chữ
+ *   - Khách hàng ký tên + NVGH ký tên + Kế toán ký tên
+ *   - Mã QR chuyển khoản
  *
- * Everything is inline-styled so the layout survives @media print without
- * external CSS. Designed for A5/A4 portrait.
+ * Everything is inline-styled so the layout survives @media print.
+ * Designed for A4 portrait.
  */
 const PaymentReceiptPrint = ({ order }) => {
     if (!order) return null;
 
     const total = Number(order.totalAmount || 0);
-    const paymentMethod = order.paymentMethod || 'CASH'; // CASH | BANK_TRANSFER | COD | COMBINED
+    const paymentMethod = order.paymentMethod || 'CASH';
     const orderDate = order.createdAt ? formatDateTime(order.createdAt) : '—';
     const orderNumber = order.orderNumber || order.id || '—';
     const customerName = order.customerName || order.shippingAddress?.label || '—';
-    const customerPhone = order.shippingAddress?.phone || '—';
     const customerAddr = [
         order.shippingAddress?.line1,
         order.shippingAddress?.ward,
@@ -33,36 +35,30 @@ const PaymentReceiptPrint = ({ order }) => {
         order.shippingAddress?.city,
     ].filter(Boolean).join(', ') || '—';
 
+    const items = Array.isArray(order.items) ? order.items : [];
+    const totalQuantity = items.reduce((s, it) => s + Number(it.quantity || 0), 0);
+
     const amountInWords = numberToVietnameseText(total);
 
     return (
         <div style={page()}>
             <div style={frame()}>
-                {/* ── Header: country banner ─────────────────────────── */}
-                <div style={countryBanner()}>
-                    <div style={countryTitle()}>
-                        CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM
+                {/* ── Top row: Title + QR ─────────────────────────── */}
+                <div style={topRow()}>
+                    <div style={{ flex: 1 }}>
+                        <div style={storeName()}>WOODFURNI</div>
+                        <div style={storeSub()}>Nội thất gỗ cao cấp</div>
                     </div>
-                    <div style={countrySub()}>
-                        Độc lập – Tự do – Hạnh phúc
-                    </div>
-                    <div style={countryDivider()} />
-                </div>
-
-                {/* ── Issuer + receipt title + QR (3 columns) ────────── */}
-                <div style={headerRow()}>
-                    <div style={issuerCol()}>
-                        <div style={{ ...issuerLine(), fontWeight: 700 }}>Đơn vị: CÔNG TY WOODFURNI</div>
-                        <div style={issuerLine()}>Nội thất gỗ cao cấp</div>
-                    </div>
-                    <div style={receiptTitleCol()}>
-                        <div style={receiptTitle()}>BIÊN NHẬN THU TIỀN</div>
-                        <div style={receiptSub()}>Ngày {extractDay(orderDate)} tháng {extractMonth(orderDate)} năm {extractYear(orderDate)}</div>
+                    <div style={titleCol()}>
+                        <div style={title()}>BIÊN NHẬN THANH TOÁN</div>
+                        <div style={titleSub()}>
+                            Ngày {extractDay(orderDate)} tháng {extractMonth(orderDate)} năm {extractYear(orderDate)}
+                        </div>
                     </div>
                     <div style={qrCol()}>
                         <img
                             src={QR_SRC}
-                            alt="Mã QR chuyển khoản ngân hàng"
+                            alt="Mã QR chuyển khoản"
                             style={qrImg()}
                             onError={(e) => { e.currentTarget.style.display = 'none'; }}
                         />
@@ -70,79 +66,97 @@ const PaymentReceiptPrint = ({ order }) => {
                     </div>
                 </div>
 
-                {/* ── Field grid ─────────────────────────────────────── */}
-                <div style={fields()}>
-                    <FieldRow label="Mã đơn hàng:" value={orderNumber} />
-                    <FieldRow label="Họ tên người nộp:" value={customerName} />
-                    <FieldRow label="Số điện thoại:" value={customerPhone} />
-                    <FieldRow label="Địa chỉ:" value={customerAddr} multiline />
-                    <FieldRow label="Lý do thu:" value="Thanh toán tiền hàng theo đơn hàng" />
-                    <FieldRow
-                        label="Số tiền:"
-                        value={formatCurrency(total)}
-                        valueStyle={amountStyle()}
-                    />
-                    <FieldRow
-                        label="Viết bằng chữ:"
-                        value={amountInWords}
-                        valueStyle={{ fontStyle: 'italic', fontSize: 13 }}
-                    />
+                {/* ── Order info grid ─────────────────────────────── */}
+                <div style={infoBlock()}>
+                    <InfoRow label="Mã đơn hàng:" value={orderNumber} />
+                    <InfoRow label="Khách hàng:" value={customerName} />
+                    <InfoRow label="Địa chỉ giao hàng:" value={customerAddr} />
                 </div>
 
-                {/* ── Payment method checkboxes ──────────────────────── */}
-                <div style={methodBlock()}>
-                    <div style={methodLabel()}>Hình thức thanh toán:</div>
-                    <div style={methodRow()}>
-                        <Check label="Tiền mặt" checked={paymentMethod === 'CASH'} />
-                        <Check label="Chuyển khoản" checked={paymentMethod === 'BANK_TRANSFER'} />
-                        <Check label="COD" checked={paymentMethod === 'COD'} />
-                        <Check label="Kết hợp" checked={paymentMethod === 'COMBINED'} />
+                {/* ── Items table ─────────────────────────────────── */}
+                <table style={itemsTable()}>
+                    <thead>
+                        <tr>
+                            <th style={th({ width: 50 })}>STT</th>
+                            <th style={th()}>Tên sản phẩm</th>
+                            <th style={th({ width: 80 })}>Số lượng</th>
+                            <th style={th({ width: 140 })}>Thành tiền</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {items.length === 0 && (
+                            <tr>
+                                <td colSpan={4} style={td({ textAlign: 'center', fontStyle: 'italic' })}>
+                                    Không có sản phẩm
+                                </td>
+                            </tr>
+                        )}
+                        {items.map((it, idx) => (
+                            <tr key={`${it.productId}-${idx}`}>
+                                <td style={td({ textAlign: 'center' })}>{idx + 1}</td>
+                                <td style={td()}>
+                                    {it.productName || '—'}
+                                    {it.sku ? (
+                                        <span style={{ color: '#888', marginLeft: 6, fontSize: 12 }}>
+                                            (SKU: {it.sku})
+                                        </span>
+                                    ) : null}
+                                </td>
+                                <td style={td({ textAlign: 'center' })}>{it.quantity}</td>
+                                <td style={td({ textAlign: 'right' })}>{formatCurrency(it.subtotal)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+
+                {/* ── Totals ──────────────────────────────────────── */}
+                <div style={totalsBlock()}>
+                    <div style={totalsRow()}>
+                        <div style={totalsLabel()}>Tổng số lượng sản phẩm:</div>
+                        <div style={totalsValue()}>{totalQuantity}</div>
+                    </div>
+                    <div style={totalsRow()}>
+                        <div style={totalsLabel()}>Tổng tiền hàng:</div>
+                        <div style={{ ...totalsValue(), ...grandTotalStyle() }}>
+                            {formatCurrency(total)}
+                        </div>
                     </div>
                 </div>
 
-                {/* ── Italic note ────────────────────────────────────── */}
-                <div style={noteLine()}>
-                    (Ghi chú: Biên nhận có giá trị khi có đầy đủ chữ ký của người nộp và người thu tiền)
+                {/* ── Payment method + amount in words ────────────── */}
+                <div style={paymentBlock()}>
+                    <div style={paymentRow()}>
+                        <div style={{ fontWeight: 700 }}>Hình thức thanh toán:</div>
+                        <div style={methodChecks()}>
+                            <Check label="Tiền mặt" checked={paymentMethod === 'CASH'} />
+                            <Check label="Chuyển khoản" checked={paymentMethod === 'BANK_TRANSFER' || paymentMethod === 'SANDBOX_CARD' || paymentMethod === 'SANDBOX_WALLET'} />
+                            <Check label="COD" checked={paymentMethod === 'COD'} />
+                        </div>
+                    </div>
+                    <div style={amountWordsRow()}>
+                        <span style={{ fontWeight: 700 }}>Số tiền bằng chữ: </span>
+                        <span style={{ fontStyle: 'italic' }}>{amountInWords}</span>
+                    </div>
                 </div>
 
-                {/* ── Signatures ─────────────────────────────────────── */}
+                {/* ── Signature row: 3 columns ────────────────────── */}
                 <div style={signatures()}>
-                    <div style={sigBox()}>
-                        <div style={sigTitle()}>Người nộp tiền</div>
-                        <div style={sigHint()}>(Ký và ghi rõ họ tên)</div>
-                        <div style={sigSpace()} />
-                        <div style={dateLine()}>
-                            Ngày …… tháng …… năm ……
-                        </div>
-                    </div>
-                    <div style={sigBox()}>
-                        <div style={sigTitle()}>Người thu tiền</div>
-                        <div style={sigHint()}>(Ký và ghi rõ họ tên)</div>
-                        <div style={sigSpace()} />
-                        <div style={dateLine()}>
-                            Ngày …… tháng …… năm ……
-                        </div>
-                    </div>
+                    <SigBox title="Khách hàng" hint="(Ký và ghi rõ họ tên)" />
+                    <SigBox title="NVGH" hint="(Ký và ghi rõ họ tên)" />
+                    <SigBox title="Kế toán" hint="(Ký và ghi rõ họ tên)" />
                 </div>
             </div>
         </div>
     );
 };
 
-// ── Helpers ────────────────────────────────────────────────────────────────────
+// ── Sub-components ────────────────────────────────────────────────────────────
 
-function FieldRow({ label, value, multiline, valueStyle }) {
+function InfoRow({ label, value }) {
     return (
-        <div style={fieldRow()}>
-            <div style={fieldLabel()}>{label}</div>
-            <div
-                style={{
-                    ...fieldValue(multiline),
-                    ...(valueStyle || {}),
-                }}
-            >
-                {value}
-            </div>
+        <div style={infoRow()}>
+            <div style={infoLabel()}>{label}</div>
+            <div style={infoValue()}>{value}</div>
         </div>
     );
 }
@@ -153,8 +167,18 @@ function Check({ label, checked }) {
             <span style={checkBox(checked)}>
                 {checked && <span style={checkMark()}>✓</span>}
             </span>
-            <span style={checkLabel()}>{label}</span>
+            <span>{label}</span>
         </span>
+    );
+}
+
+function SigBox({ title, hint }) {
+    return (
+        <div style={sigBox()}>
+            <div style={sigTitle()}>{title}</div>
+            <div style={sigHint()}>{hint}</div>
+            <div style={sigSpace()} />
+        </div>
     );
 }
 
@@ -163,7 +187,7 @@ function extractDay(s) { return (s || '').split('/')[0] || '……'; }
 function extractMonth(s) { return (s || '').split('/')[1] || '……'; }
 function extractYear(s) { return (s || '').split('/')[2]?.split(' ')[0] || '……'; }
 
-// ── Vietnamese number-to-words (đơn giản, đủ dùng cho biên nhận) ──────────────
+// ── Vietnamese number-to-words ────────────────────────────────────────────────
 function numberToVietnameseText(n) {
     if (!n || n <= 0) return 'Không đồng';
     const units = ['', 'một', 'hai', 'ba', 'bốn', 'năm', 'sáu', 'bảy', 'tám', 'chín'];
@@ -215,9 +239,7 @@ export default PaymentReceiptPrint;
 // ── Styles ─────────────────────────────────────────────────────────────────────
 
 const NAVY = '#1a3a8a';
-const NAVY_LIGHT = '#2c52a8';
-// VietQR / bank account logo path. Bundled by Vite from /public and
-// stays crisp on screen + print.
+// Bank QR image (VietQR). Bundled from /public.
 const QR_SRC = '/bank-qr.png';
 
 const page = () => ({
@@ -226,62 +248,59 @@ const page = () => ({
     color: '#000',
     background: '#fff',
     padding: '16px',
-    width: 700,
+    width: 760,
     boxSizing: 'border-box',
 });
 
 const frame = () => ({
     border: `2px solid ${NAVY}`,
-    padding: '20px 24px',
+    padding: '24px 28px',
 });
 
-const countryBanner = () => ({
-    textAlign: 'center',
-    marginBottom: 12,
+const topRow = () => ({
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 16,
+    borderBottom: `2px solid ${NAVY}`,
+    paddingBottom: 14,
+    marginBottom: 18,
 });
 
-const countryTitle = () => ({
-    fontWeight: 700,
-    fontSize: 14,
-    letterSpacing: 1,
+const storeName = () => ({
+    fontSize: 26,
+    fontWeight: 800,
+    color: NAVY,
+    letterSpacing: 2,
 });
 
-const countrySub = () => ({
-    fontStyle: 'italic',
+const storeSub = () => ({
     fontSize: 13,
-    fontWeight: 600,
-    marginTop: 2,
+    fontStyle: 'italic',
+    color: '#555',
+    marginTop: 4,
 });
 
-const countryDivider = () => ({
-    width: 180,
-    height: 1,
-    background: '#000',
-    margin: '4px auto 0',
+const titleCol = () => ({
+    flex: 1,
+    textAlign: 'center',
 });
 
-const titleRow = () => ({
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginTop: 18,
-    marginBottom: 16,
+const title = () => ({
+    fontSize: 22,
+    fontWeight: 800,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
 });
 
-// Header layout: [issuer] [title] [QR]
-// Three columns so the QR sits in the top-right corner of the receipt,
-// next to the "BIÊN NHẬN THU TIỀN" heading.
-const headerRow = () => ({
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 12,
-    marginTop: 18,
-    marginBottom: 16,
+const titleSub = () => ({
+    fontSize: 13,
+    fontStyle: 'italic',
+    marginTop: 6,
 });
 
 const qrCol = () => ({
-    width: 130,
+    width: 140,
     textAlign: 'center',
 });
 
@@ -293,7 +312,6 @@ const qrImg = () => ({
     background: '#fff',
     display: 'block',
     margin: '0 auto',
-    // Keep crisp when the PDF renderer resamples the image.
     imageRendering: 'pixelated',
 });
 
@@ -304,85 +322,113 @@ const qrCaption = () => ({
     marginTop: 4,
 });
 
-const issuerCol = () => ({
-    flex: 1,
-    fontSize: 13,
-});
-
-const issuerLine = () => ({
-    lineHeight: 1.5,
-});
-
-const receiptTitleCol = () => ({
-    textAlign: 'center',
-    flex: 1,
-});
-
-const receiptTitle = () => ({
-    fontSize: 22,
-    fontWeight: 800,
-    letterSpacing: 2,
-    textDecoration: 'underline',
-});
-
-const receiptSub = () => ({
-    fontSize: 13,
-    fontStyle: 'italic',
-    marginTop: 6,
-});
-
-const fields = () => ({
+// Info block (mã đơn, tên KH, địa chỉ)
+const infoBlock = () => ({
     marginBottom: 16,
 });
 
-const fieldRow = () => ({
+const infoRow = () => ({
     display: 'grid',
-    gridTemplateColumns: '160px 1fr',
+    gridTemplateColumns: '180px 1fr',
     alignItems: 'baseline',
-    padding: '6px 0',
-    borderBottom: '1px dashed #888',
+    padding: '4px 0',
     gap: 12,
 });
 
-const fieldLabel = () => ({
+const infoLabel = () => ({
     fontSize: 14,
-    fontWeight: 600,
+    fontWeight: 700,
 });
 
-const fieldValue = (multiline) => ({
+const infoValue = () => ({
     fontSize: 14,
-    whiteSpace: multiline ? 'normal' : 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
+    wordBreak: 'break-word',
 });
 
-const amountStyle = () => ({
-    fontSize: 16,
-    fontWeight: 800,
-    color: NAVY,
+// Items table
+const itemsTable = () => ({
+    width: '100%',
+    borderCollapse: 'collapse',
+    marginBottom: 14,
+    fontSize: 14,
 });
 
-const methodBlock = () => ({
-    marginTop: 18,
+const th = (extra = {}) => ({
+    border: '1px solid #333',
+    padding: '8px 10px',
+    background: '#e8eef9',
+    fontSize: 14,
+    fontWeight: 700,
+    textAlign: 'left',
+    ...extra,
+});
+
+const td = (extra = {}) => ({
+    border: '1px solid #333',
+    padding: '8px 10px',
+    fontSize: 14,
+    verticalAlign: 'top',
+    ...extra,
+});
+
+// Totals block
+const totalsBlock = () => ({
     marginBottom: 16,
-});
-
-const methodLabel = () => ({
-    fontSize: 14,
-    fontWeight: 600,
-    marginBottom: 8,
-});
-
-const methodRow = () => ({
     display: 'flex',
-    gap: 28,
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+});
+
+const totalsRow = () => ({
+    display: 'flex',
+    justifyContent: 'space-between',
+    width: 360,
+    padding: '4px 0',
+    fontSize: 14,
+});
+
+const totalsLabel = () => ({
+    fontWeight: 600,
+});
+
+const totalsValue = () => ({
+    fontWeight: 700,
+    textAlign: 'right',
+});
+
+const grandTotalStyle = () => ({
+    color: NAVY,
+    fontSize: 18,
+    fontWeight: 800,
+});
+
+// Payment block
+const paymentBlock = () => ({
+    marginTop: 8,
+    marginBottom: 24,
+    padding: '12px 14px',
+    border: '1px solid #999',
+    borderRadius: 4,
+});
+
+const paymentRow = () => ({
+    display: 'flex',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 8,
+    flexWrap: 'wrap',
+});
+
+const methodChecks = () => ({
+    display: 'flex',
+    gap: 24,
     flexWrap: 'wrap',
 });
 
 const checkItem = () => ({
     display: 'inline-flex',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     fontSize: 14,
 });
 
@@ -403,23 +449,16 @@ const checkMark = () => ({
     lineHeight: 1,
 });
 
-const checkLabel = () => ({
-    fontWeight: 500,
+const amountWordsRow = () => ({
+    fontSize: 14,
+    marginTop: 6,
 });
 
-const noteLine = () => ({
-    fontStyle: 'italic',
-    fontSize: 12,
-    color: '#555',
-    marginTop: 8,
-    marginBottom: 24,
-    textAlign: 'center',
-});
-
+// Signature row (3 columns)
 const signatures = () => ({
     display: 'flex',
-    gap: 40,
-    marginTop: 16,
+    gap: 24,
+    marginTop: 24,
 });
 
 const sigBox = () => ({
@@ -440,11 +479,5 @@ const sigHint = () => ({
 });
 
 const sigSpace = () => ({
-    height: 70,
-});
-
-const dateLine = () => ({
-    fontSize: 12,
-    color: '#444',
-    fontStyle: 'italic',
+    height: 80,
 });
