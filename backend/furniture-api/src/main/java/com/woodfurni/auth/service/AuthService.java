@@ -264,22 +264,33 @@ public class AuthService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new RuntimeException("Người dùng không tồn tại"));
 
-        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+        String currentPwd = request.getCurrentPassword() == null ? "" : request.getCurrentPassword().trim();
+        String newPwd = request.getNewPassword() == null ? "" : request.getNewPassword().trim();
+        String confirmPwd = request.getConfirmNewPassword() == null ? "" : request.getConfirmNewPassword().trim();
+
+        if (currentPwd.isEmpty()) {
+            throw new IllegalArgumentException("Vui lòng nhập mật khẩu hiện tại");
+        }
+        if (newPwd.isEmpty()) {
+            throw new IllegalArgumentException("Vui lòng nhập mật khẩu mới");
+        }
+        if (newPwd.length() < 6) {
+            throw new IllegalArgumentException("Mật khẩu mới phải có ít nhất 6 ký tự");
+        }
+
+        if (!passwordEncoder.matches(currentPwd, user.getPasswordHash())) {
             throw new IllegalArgumentException("Mật khẩu hiện tại không đúng");
         }
 
-        if (!request.getNewPassword().equals(request.getConfirmNewPassword())) {
+        if (!newPwd.equals(confirmPwd)) {
             throw new IllegalArgumentException("Mật khẩu mới và xác nhận mật khẩu không khớp");
         }
 
-        if (passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())) {
+        if (passwordEncoder.matches(newPwd, user.getPasswordHash())) {
             throw new IllegalArgumentException("Mật khẩu mới phải khác mật khẩu hiện tại");
         }
 
-        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
-        // Invalidate all sessions by clearing the refresh token (forces re-login
-        // on other devices after a password change).
-        user.setCurrentRefreshToken(null);
+        user.setPasswordHash(passwordEncoder.encode(newPwd));
         userRepository.save(user);
         log.info("User {} changed password", user.getEmail());
     }

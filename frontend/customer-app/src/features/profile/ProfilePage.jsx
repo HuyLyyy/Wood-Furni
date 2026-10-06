@@ -367,6 +367,10 @@ function SecurityTab() {
             setError('Mật khẩu mới phải có ít nhất 6 ký tự');
             return;
         }
+        if (newPassword.length > 100) {
+            setError('Mật khẩu mới không được vượt quá 100 ký tự');
+            return;
+        }
         if (newPassword !== confirmNewPassword) {
             setError('Mật khẩu mới và xác nhận mật khẩu không khớp');
             return;
@@ -378,17 +382,27 @@ function SecurityTab() {
 
         setSaving(true);
         try {
-            await authApi.changePassword({
-                currentPassword,
-                newPassword,
-                confirmNewPassword,
-            });
+            const payload = {
+                currentPassword: currentPassword.trim(),
+                newPassword: newPassword.trim(),
+                confirmNewPassword: confirmNewPassword.trim(),
+            };
+            await authApi.changePassword(payload);
             setSuccess(true);
+            setError(null);
             setCurrentPassword('');
             setNewPassword('');
             setConfirmNewPassword('');
         } catch (err) {
-            const msg = err?.response?.data?.message || err?.message || 'Đổi mật khẩu thất bại';
+            // Surface backend's validation message. err shape comes from
+            // apiClient interceptor: { status, message, errors, data }.
+            const fieldErr =
+                Array.isArray(err?.errors) && err.errors.length > 0
+                    ? err.errors
+                          .map((e) => `${e.field || ''}: ${e.message || ''}`.trim())
+                          .join('; ')
+                    : null;
+            const msg = err?.message || fieldErr || 'Đổi mật khẩu thất bại, vui lòng thử lại';
             setError(msg);
         } finally {
             setSaving(false);
