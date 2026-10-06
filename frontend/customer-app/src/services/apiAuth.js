@@ -25,6 +25,12 @@ export const authApi = {
 
     logout: () => apiClient.post('/auth/logout').then((r) => r.data),
 
+    updateProfile: (payload) =>
+        apiClient.put('/auth/me', payload).then((r) => r.data.data),
+
+    changePassword: (payload) =>
+        apiClient.put('/auth/me/password', payload).then((r) => r.data),
+
     sendRegistrationOtp: (email) =>
         apiClient.post('/auth/otp/send', { email }).then((r) => r.data.data),
 

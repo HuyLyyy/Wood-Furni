@@ -225,9 +225,13 @@ function Header({ isAuthenticated, user, onLogout }) {
 
                     {isAuthenticated ? (
                         <div className="header__user-menu">
-                            <span className="header__user-name">
+                            <Link
+                                to="/profile"
+                                className="header__user-name header__user-name--link"
+                                aria-label="Tài khoản của tôi"
+                            >
                                 {user?.fullName || user?.email || 'Tài khoản'}
-                            </span>
+                            </Link>
                             <Link to="/orders" className="header__menu-link">Đơn hàng</Link>
                             <button type="button" className="header__menu-button" onClick={onLogout}>
                                 Đăng xuất

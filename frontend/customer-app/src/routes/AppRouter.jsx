@@ -7,6 +7,7 @@ import { ProductListPage, ProductDetailPage } from '../features/catalog/index.js
 import { CartPage } from '../features/cart/index.js';
 import { CheckoutPage } from '../features/checkout/index.js';
 import { OrderListPage, OrderDetailPage } from '../features/order/index.js';
+import { ProfilePage } from '../features/profile/index.js';
 import HomePage from '../pages/HomePage.jsx';
 import NotFoundPage from '../pages/NotFoundPage.jsx';
 
@@ -59,6 +60,13 @@ export default function AppRouter() {
                 <Route path="/orders/:id" element={
                     <ProtectedRoute>
                         <OrderDetailPage />
+                    </ProtectedRoute>
+                } />
+
+                {/* Profile */}
+                <Route path="/profile" element={
+                    <ProtectedRoute>
+                        <ProfilePage />
                     </ProtectedRoute>
                 } />
 

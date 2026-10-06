@@ -1,8 +1,10 @@
 package com.woodfurni.auth.service;
 
 import com.woodfurni.auth.dto.AuthResponse;
+import com.woodfurni.auth.dto.ChangePasswordRequest;
 import com.woodfurni.auth.dto.LoginRequest;
 import com.woodfurni.auth.dto.RegisterRequest;
+import com.woodfurni.auth.dto.UpdateProfileRequest;
 import com.woodfurni.auth.dto.UserSummary;
 import com.woodfurni.auth.enums.Role;
 import com.woodfurni.auth.enums.UserStatus;
@@ -226,5 +228,59 @@ public class AuthService {
                 .role(user.getRole())
                 .status(user.getStatus())
                 .build();
+    }
+
+    /**
+     * Update the authenticated user's profile (fullName + phone).
+     * Email is intentionally immutable.
+     *
+     * @param userId  the user ID from SecurityContext
+     * @param request payload
+     * @return updated UserSummary
+     */
+    public UserSummary updateProfile(String userId, UpdateProfileRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("Người dùng không tồn tại"));
+
+        user.setFullName(request.getFullName());
+        user.setPhone(request.getPhone());
+
+        User saved = userRepository.save(user);
+        log.info("User {} updated profile: fullName={}, phone={}",
+                saved.getEmail(), saved.getFullName(), saved.getPhone());
+
+        return toUserSummary(saved);
+    }
+
+    /**
+     * Change the authenticated user's password.
+     * Verifies the current password and confirms that the new password
+     * and confirmation match.
+     *
+     * @param userId  the user ID from SecurityContext
+     * @param request payload (currentPassword, newPassword, confirmNewPassword)
+     */
+    public void changePassword(String userId, ChangePasswordRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("Người dùng không tồn tại"));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            throw new IllegalArgumentException("Mật khẩu hiện tại không đúng");
+        }
+
+        if (!request.getNewPassword().equals(request.getConfirmNewPassword())) {
+            throw new IllegalArgumentException("Mật khẩu mới và xác nhận mật khẩu không khớp");
+        }
+
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())) {
+            throw new IllegalArgumentException("Mật khẩu mới phải khác mật khẩu hiện tại");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        // Invalidate all sessions by clearing the refresh token (forces re-login
+        // on other devices after a password change).
+        user.setCurrentRefreshToken(null);
+        userRepository.save(user);
+        log.info("User {} changed password", user.getEmail());
     }
 }

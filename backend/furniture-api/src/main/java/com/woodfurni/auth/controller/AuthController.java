@@ -1,9 +1,11 @@
 package com.woodfurni.auth.controller;
 
 import com.woodfurni.auth.dto.AuthResponse;
+import com.woodfurni.auth.dto.ChangePasswordRequest;
 import com.woodfurni.auth.dto.LoginRequest;
 import com.woodfurni.auth.dto.RefreshTokenRequest;
 import com.woodfurni.auth.dto.RegisterRequest;
+import com.woodfurni.auth.dto.UpdateProfileRequest;
 import com.woodfurni.auth.dto.UserSummary;
 import com.woodfurni.auth.service.AuthService;
 import com.woodfurni.common.ApiResponse;
@@ -16,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -81,5 +84,25 @@ public class AuthController {
     public ResponseEntity<ApiResponse<Void>> logout(Authentication authentication) {
         String userId = authentication.getName();
         return ResponseEntity.ok(authService.logout(userId));
+    }
+
+    @PutMapping("/me")
+    @Operation(summary = "Update current user profile", description = "Update fullName and phone of the authenticated user", security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<UserSummary>> updateProfile(
+            Authentication authentication,
+            @Valid @RequestBody UpdateProfileRequest request) {
+        String userId = authentication.getName();
+        UserSummary updated = authService.updateProfile(userId, request);
+        return ResponseEntity.ok(ApiResponse.success("Cập nhật thông tin thành công", updated));
+    }
+
+    @PutMapping("/me/password")
+    @Operation(summary = "Change password", description = "Change the authenticated user's password (requires current password)", security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            Authentication authentication,
+            @Valid @RequestBody ChangePasswordRequest request) {
+        String userId = authentication.getName();
+        authService.changePassword(userId, request);
+        return ResponseEntity.ok(ApiResponse.success("Đổi mật khẩu thành công", null));
     }
 }
