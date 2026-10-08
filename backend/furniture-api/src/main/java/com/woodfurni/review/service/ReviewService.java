@@ -139,6 +139,60 @@ public class ReviewService {
     }
 
     /**
+     * Update the content of an existing review.
+     * Only the owner of the review (or an ADMIN) is allowed to edit it.
+     * After updating, the product's denormalized rating is recalculated.
+     *
+     * @param userId   authenticated user id (from SecurityContext)
+     * @param isAdmin  true if the caller has ROLE_ADMIN — admin can edit any review
+     * @param reviewId review to update
+     * @param rating   new rating (1-5)
+     * @param comment  new comment (nullable, max 2000 chars)
+     */
+    @Transactional
+    public ReviewResponse update(String userId, boolean isAdmin, String reviewId,
+                                 Integer rating, String comment) {
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new EntityNotFoundException("Review not found: " + reviewId));
+
+        if (!isAdmin && !review.getUserId().equals(userId)) {
+            throw new OrderOwnershipException(); // 403 — "not your review"
+        }
+
+        review.setRating(rating);
+        review.setComment(comment);
+
+        Review saved = reviewRepository.save(review);
+        log.info("Review updated: id={}, userId={}, isAdmin={}", reviewId, userId, isAdmin);
+
+        // Rating values can change, so refresh the cached product rating.
+        recalculateProductRating(review.getProductId());
+
+        return toResponse(saved);
+    }
+
+    /**
+     * Delete an existing review.
+     * Only the owner of the review (or an ADMIN) is allowed to delete it.
+     * The product's denormalized rating is recalculated after deletion.
+     */
+    @Transactional
+    public void delete(String userId, boolean isAdmin, String reviewId) {
+        Review review = reviewRepository.findById(reviewId)
+                .orElseThrow(() -> new EntityNotFoundException("Review not found: " + reviewId));
+
+        if (!isAdmin && !review.getUserId().equals(userId)) {
+            throw new OrderOwnershipException(); // 403
+        }
+
+        String productId = review.getProductId();
+        reviewRepository.delete(review);
+        log.info("Review deleted: id={}, userId={}, isAdmin={}", reviewId, userId, isAdmin);
+
+        recalculateProductRating(productId);
+    }
+
+    /**
      * List visible reviews for a product (public).
      * Only VISIBLE reviews are returned.
      *

@@ -46,6 +46,79 @@ export default function ProductDetailPage() {
         8
     );
 
+    // Review mutation state. editingId: which review is being edited (null if
+    // none). pendingDeleteId: which review is waiting for a delete confirm.
+    const [editingId, setEditingId] = useState(null);
+    const [editForm, setEditForm] = useState({ rating: 5, comment: '' });
+    const [reviewBusy, setReviewBusy] = useState(false);
+    const [pendingDeleteId, setPendingDeleteId] = useState(null);
+    const [reviewError, setReviewError] = useState(null);
+
+    const startEdit = (review) => {
+        setReviewError(null);
+        setEditingId(review.id);
+        setEditForm({
+            rating: review.rating || 5,
+            comment: review.comment || '',
+        });
+    };
+
+    const cancelEdit = () => {
+        setEditingId(null);
+        setEditForm({ rating: 5, comment: '' });
+    };
+
+    const submitEdit = async (reviewId) => {
+        if (!editForm.rating) {
+            toast.error('Vui lòng chọn số sao');
+            return;
+        }
+        if (editForm.comment && editForm.comment.length > 2000) {
+            toast.error('Bình luận không được vượt quá 2000 ký tự');
+            return;
+        }
+        setReviewBusy(true);
+        try {
+            const updated = await reviewsApi.updateReview(reviewId, {
+                rating: editForm.rating,
+                comment: editForm.comment || '',
+            });
+            setReviews((prev) => prev.map((r) => (r.id === reviewId ? updated : r)));
+            // Refresh rating stats since the rating may have changed.
+            setRatingStats((prev) => {
+                const oldRating = reviews.find((r) => r.id === reviewId)?.rating || 0;
+                const sum = (prev.average || 0) * (prev.count || 0) - oldRating + (updated.rating || 0);
+                const count = prev.count || 0;
+                const newAverage = count > 0 ? Math.round((sum / count) * 10) / 10 : 0;
+                return { ...prev, average: newAverage };
+            });
+            toast.success('Đã cập nhật đánh giá');
+            setEditingId(null);
+        } catch (err) {
+            // toast already shown by apiClient interceptor
+        } finally {
+            setReviewBusy(false);
+        }
+    };
+
+    const confirmDelete = async (reviewId) => {
+        setReviewBusy(true);
+        try {
+            await reviewsApi.deleteReview(reviewId);
+            setReviews((prev) => prev.filter((r) => r.id !== reviewId));
+            setRatingStats((prev) => ({
+                ...prev,
+                count: Math.max(0, (prev.count || 1) - 1),
+            }));
+            toast.success('Đã xoá đánh giá');
+            setPendingDeleteId(null);
+        } catch (err) {
+            // toast already shown by apiClient interceptor
+        } finally {
+            setReviewBusy(false);
+        }
+    };
+
     // -------- fetch product + first page of reviews --------
     useEffect(() => {
         let cancelled = false;
@@ -367,24 +440,112 @@ export default function ProductDetailPage() {
                     </p>
                 ) : (
                     <ul className="product-detail__reviews">
-                        {reviews.map((r) => (
-                            <li key={r.id} className="product-detail__review">
-                                <div className="product-detail__review-head">
-                                    <Stars value={r.rating || 0} />
-                                    <span className="product-detail__review-author">
-                                        {r.userDisplayName || 'Khách hàng'}
-                                    </span>
-                                    <span className="product-detail__review-date">
-                                        {r.createdAt
-                                            ? new Date(r.createdAt).toLocaleDateString('vi-VN')
-                                            : ''}
-                                    </span>
-                                </div>
-                                {r.comment && (
-                                    <p className="product-detail__review-comment">{r.comment}</p>
-                                )}
-                            </li>
-                        ))}
+                        {reviews.map((r) => {
+                            const isOwner = isAuthenticated && user?.id === r.userId;
+                            const isEditing = editingId === r.id;
+                            return (
+                                <li key={r.id} className="product-detail__review">
+                                    <div className="product-detail__review-head">
+                                        {isEditing ? (
+                                            <ReviewStarPicker
+                                                value={editForm.rating}
+                                                onChange={(v) => setEditForm((f) => ({ ...f, rating: v }))}
+                                            />
+                                        ) : (
+                                            <Stars value={r.rating || 0} />
+                                        )}
+                                        <span className="product-detail__review-author">
+                                            {r.userDisplayName || 'Khách hàng'}
+                                        </span>
+                                        <span className="product-detail__review-date">
+                                            {r.createdAt
+                                                ? new Date(r.createdAt).toLocaleDateString('vi-VN')
+                                                : ''}
+                                        </span>
+                                        {isOwner && !isEditing && (
+                                            <div className="product-detail__review-actions">
+                                                <button
+                                                    type="button"
+                                                    className="product-detail__review-action"
+                                                    onClick={() => startEdit(r)}
+                                                >
+                                                    Sửa
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="product-detail__review-action product-detail__review-action--danger"
+                                                    onClick={() => setPendingDeleteId(r.id)}
+                                                >
+                                                    Xoá
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {isEditing ? (
+                                        <div className="product-detail__review-edit">
+                                            <textarea
+                                                className="product-detail__review-textarea"
+                                                value={editForm.comment}
+                                                onChange={(e) => setEditForm((f) => ({ ...f, comment: e.target.value }))}
+                                                maxLength={2000}
+                                                rows={4}
+                                                placeholder="Chia sẻ trải nghiệm của bạn về sản phẩm..."
+                                            />
+                                            <div className="product-detail__review-edit-meta">
+                                                {editForm.comment.length}/2000
+                                            </div>
+                                            <div className="product-detail__review-edit-actions">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={cancelEdit}
+                                                    disabled={reviewBusy}
+                                                >
+                                                    Huỷ
+                                                </Button>
+                                                <Button
+                                                    variant="primary"
+                                                    size="sm"
+                                                    onClick={() => submitEdit(r.id)}
+                                                    disabled={reviewBusy}
+                                                >
+                                                    Lưu thay đổi
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        r.comment && (
+                                            <p className="product-detail__review-comment">{r.comment}</p>
+                                        )
+                                    )}
+
+                                    {pendingDeleteId === r.id && (
+                                        <div className="product-detail__review-confirm">
+                                            Bạn có chắc chắn muốn xoá đánh giá này?
+                                            <div className="product-detail__review-confirm-actions">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() => setPendingDeleteId(null)}
+                                                    disabled={reviewBusy}
+                                                >
+                                                    Huỷ
+                                                </Button>
+                                                <Button
+                                                    variant="primary"
+                                                    size="sm"
+                                                    onClick={() => confirmDelete(r.id)}
+                                                    disabled={reviewBusy}
+                                                >
+                                                    Xoá
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </li>
+                            );
+                        })}
                     </ul>
                 )}
             </section>
@@ -479,5 +640,33 @@ function Stars({ value }) {
                 </span>
             ))}
         </span>
+    );
+}
+
+/**
+ * Interactive 5-star picker used inside the inline review-edit form.
+ * Click a star to set the rating (1..5). Hover preview is a nice-to-have.
+ */
+function ReviewStarPicker({ value, onChange }) {
+    return (
+        <div
+            className="review-star-picker"
+            role="radiogroup"
+            aria-label="Chọn số sao"
+        >
+            {[1, 2, 3, 4, 5].map((i) => (
+                <button
+                    key={i}
+                    type="button"
+                    className={`review-star-picker__star ${i <= value ? 'is-filled' : ''}`}
+                    onClick={() => onChange(i)}
+                    aria-label={`${i} sao`}
+                    aria-checked={i === value}
+                    role="radio"
+                >
+                    ★
+                </button>
+            ))}
+        </div>
     );
 }

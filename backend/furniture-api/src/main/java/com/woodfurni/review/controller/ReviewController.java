@@ -74,6 +74,44 @@ public class ReviewController {
         return ResponseEntity.ok(ApiResponse.success("Review status updated", review));
     }
 
+    @PutMapping("/reviews/{id}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'ADMIN')")
+    @Operation(summary = "Edit your own review",
+               description = "Owner or ADMIN can change rating/comment. " +
+                       "Returns 403 if the caller is not the original author (and not ADMIN).")
+    public ResponseEntity<ApiResponse<ReviewResponse>> updateReview(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable String id,
+            @Valid @RequestBody UpdateReviewRequest request) {
+        String userId = userDetails.getUsername();
+        boolean isAdmin = hasAdminRole(userDetails);
+        ReviewResponse updated = reviewService.update(
+                userId, isAdmin, id,
+                request.getRating(),
+                request.getComment());
+        return ResponseEntity.ok(ApiResponse.success("Review updated successfully", updated));
+    }
+
+    @DeleteMapping("/reviews/{id}")
+    @PreAuthorize("hasAnyRole('CUSTOMER', 'ADMIN')")
+    @Operation(summary = "Delete your own review",
+               description = "Owner or ADMIN can delete. " +
+                       "Returns 403 if the caller is not the original author (and not ADMIN).")
+    public ResponseEntity<ApiResponse<Void>> deleteReview(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @PathVariable String id) {
+        String userId = userDetails.getUsername();
+        boolean isAdmin = hasAdminRole(userDetails);
+        reviewService.delete(userId, isAdmin, id);
+        return ResponseEntity.ok(ApiResponse.success("Review deleted successfully"));
+    }
+
+    private boolean hasAdminRole(UserDetails userDetails) {
+        if (userDetails == null) return false;
+        return userDetails.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+    }
+
     @GetMapping("/admin/reviews")
     @PreAuthorize("hasAnyRole('ADMIN', 'CONTENT')")
     @Operation(summary = "System-wide review list (admin moderation)",

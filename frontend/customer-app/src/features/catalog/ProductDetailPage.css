@@ -513,3 +513,128 @@
     color: var(--color-text-muted, #7a7268);
     text-decoration: line-through;
 }
+
+/* ============================== Review actions (edit/delete) ============================== */
+.product-detail__review-head {
+    position: relative;
+}
+
+.product-detail__review-actions {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.product-detail__review-action {
+    background: transparent;
+    border: 1px solid var(--color-border, #e3ddd1);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--color-text, #2b2b2b);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.product-detail__review-action:hover {
+    background: var(--color-bg-soft, #faf7f1);
+    border-color: var(--color-primary, #5a3a22);
+    color: var(--color-primary, #5a3a22);
+}
+
+.product-detail__review-action--danger {
+    color: #c2392b;
+    border-color: #f1c2bb;
+}
+
+.product-detail__review-action--danger:hover {
+    background: #fdf1ef;
+    border-color: #c2392b;
+    color: #c2392b;
+}
+
+.product-detail__review-edit {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.product-detail__review-textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border, #e3ddd1);
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 14px;
+    color: var(--color-text, #2b2b2b);
+    background: #fff;
+    resize: vertical;
+    min-height: 80px;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.product-detail__review-textarea:focus {
+    outline: none;
+    border-color: var(--color-primary, #5a3a22);
+    box-shadow: 0 0 0 3px rgba(90, 58, 34, 0.12);
+}
+
+.product-detail__review-edit-meta {
+    align-self: flex-end;
+    font-size: 11px;
+    color: var(--color-text-muted, #7a7268);
+}
+
+.product-detail__review-edit-actions,
+.product-detail__review-confirm-actions {
+    display: inline-flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.product-detail__review-confirm {
+    margin-top: 8px;
+    padding: 10px 12px;
+    border: 1px dashed #f1c2bb;
+    border-radius: 8px;
+    background: #fdf1ef;
+    color: #7a1d10;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.product-detail__review-confirm-actions {
+    margin-left: auto;
+}
+
+.review-star-picker {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.review-star-picker__star {
+    background: transparent;
+    border: 0;
+    padding: 0 2px;
+    font-size: 18px;
+    line-height: 1;
+    color: #d4cdbf;
+    cursor: pointer;
+    transition: color 0.12s ease, transform 0.12s ease;
+}
+
+.review-star-picker__star:hover {
+    transform: scale(1.08);
+}
+
+.review-star-picker__star.is-filled {
+    color: #f4b400;
+}
