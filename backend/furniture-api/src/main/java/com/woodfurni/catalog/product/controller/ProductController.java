@@ -77,6 +77,17 @@ public class ProductController {
         return ResponseEntity.ok(ApiResponse.success(product));
     }
 
+    @GetMapping("/{id}/related")
+    @Operation(summary = "Get related products",
+               description = "Returns products sharing category, materials, environment, or room with the source product. Sorted by relevance then rating.")
+    public ResponseEntity<ApiResponse<java.util.List<ProductResponse>>> getRelated(
+            @PathVariable String id,
+            @RequestParam(defaultValue = "8") int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 24));
+        java.util.List<ProductResponse> related = productService.findRelated(id, safeLimit);
+        return ResponseEntity.ok(ApiResponse.success(related));
+    }
+
     @PostMapping
     @PreAuthorize("hasAnyRole('CONTENT', 'ADMIN')")
     @Operation(summary = "Create a new product", description = "Creates with status=DRAFT by default", security = @SecurityRequirement(name = "bearerAuth"))

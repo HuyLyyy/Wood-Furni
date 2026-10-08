@@ -412,6 +412,106 @@ public class ProductService {
         return toResponse(product, null, null);
     }
 
+    /**
+     * Find related products for a given product. The matching score is:
+     *   +5  same category
+     *   +3  overlap on materialIds (any shared wood type)
+     *   +2  same environment (INDOOR / OUTDOOR)
+     *   +1  same room
+     * Products with at least one matching attribute are returned, sorted by
+     * score DESC then ratingAverage DESC. The current product is excluded.
+     *
+     * @param productId the source product id
+     * @param limit     max number of related products to return
+     * @return list of up to {@code limit} ProductResponse, scored and ranked
+     */
+    public List<ProductResponse> findRelated(String productId, int limit) {
+        Product source = productRepository.findById(productId)
+                .orElseThrow(() -> new EntityNotFoundException("Product not found with id: " + productId));
+
+        // Pull up to ~4x the requested limit so we have enough candidates to
+        // rank and then trim down to the most relevant ones. Reasonable upper
+        // bound to avoid scanning the whole catalog.
+        int candidateSize = Math.max(limit * 4, 20);
+        Query q = new Query()
+                .addCriteria(Criteria.where("_id").ne(productId))
+                .addCriteria(Criteria.where("status").is(ProductStatus.ACTIVE))
+                .limit(candidateSize);
+
+        List<Product> candidates = mongoTemplate.find(q, Product.class);
+        if (candidates.isEmpty()) return List.of();
+
+        // Compute scoring buckets from the source product.
+        final String srcCategory = source.getCategoryId();
+        final List<String> srcMaterials = source.getMaterialIds() == null
+                ? List.of() : source.getMaterialIds();
+        final var srcEnv = source.getEnvironment();
+        final var srcRoom = source.getRoom();
+
+        List<Scored> scored = new ArrayList<>();
+        for (Product p : candidates) {
+            int score = 0;
+            if (srcCategory != null && srcCategory.equals(p.getCategoryId())) {
+                score += 5;
+            }
+            if (!srcMaterials.isEmpty() && p.getMaterialIds() != null) {
+                boolean materialOverlap = false;
+                for (String m : srcMaterials) {
+                    if (m != null && p.getMaterialIds().contains(m)) {
+                        materialOverlap = true;
+                        break;
+                    }
+                }
+                if (materialOverlap) score += 3;
+            }
+            if (srcEnv != null && srcEnv == p.getEnvironment()) {
+                score += 2;
+            }
+            if (srcRoom != null && srcRoom == p.getRoom()) {
+                score += 1;
+            }
+            if (score > 0) {
+                scored.add(new Scored(p, score));
+            }
+        }
+
+        if (scored.isEmpty()) return List.of();
+
+        // Highest score first, then rating, then recency as a tiebreaker.
+        scored.sort((a, b) -> {
+            int byScore = Integer.compare(b.score, a.score);
+            if (byScore != 0) return byScore;
+            double ar = a.product.getRatingAverage() == null ? 0 : a.product.getRatingAverage();
+            double br = b.product.getRatingAverage() == null ? 0 : b.product.getRatingAverage();
+            int byRating = Double.compare(br, ar);
+            if (byRating != 0) return byRating;
+            java.time.Instant ac = a.product.getCreatedAt();
+            java.time.Instant bc = b.product.getCreatedAt();
+            if (ac == null && bc == null) return 0;
+            if (ac == null) return 1;
+            if (bc == null) return -1;
+            return bc.compareTo(ac);
+        });
+
+        List<Product> topProducts = scored.stream()
+                .limit(limit)
+                .map(s -> s.product)
+                .collect(Collectors.toList());
+
+        return buildPageResponse(topProducts, 0, topProducts.size(), topProducts.size())
+                .getItems();
+    }
+
+    /** Internal helper for the related-products ranking. */
+    private static final class Scored {
+        final Product product;
+        final int score;
+        Scored(Product product, int score) {
+            this.product = product;
+            this.score = score;
+        }
+    }
+
     public ProductResponse create(ProductRequest request) {
         if (productRepository.existsBySku(request.getSku())) {
             throw new IllegalArgumentException("SKU already exists: " + request.getSku());

@@ -9,6 +9,7 @@ import { Button } from '../../components/index.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useCart } from '../../contexts/CartContext.jsx';
 import usePageTitle from '../../hooks/usePageTitle.js';
+import useRelatedProducts from '../../hooks/useRelatedProducts.js';
 import './ProductDetailPage.css';
 
 /**
@@ -38,6 +39,12 @@ export default function ProductDetailPage() {
     const [error, setError] = useState(null);
 
     usePageTitle(product?.name || 'Sản phẩm');
+
+    // Fetch related products keyed on the current product id.
+    const { items: relatedItems, loading: relatedLoading } = useRelatedProducts(
+        product?.id,
+        8
+    );
 
     // -------- fetch product + first page of reviews --------
     useEffect(() => {
@@ -381,7 +388,84 @@ export default function ProductDetailPage() {
                     </ul>
                 )}
             </section>
+
+            {/* -------- Related products -------- */}
+            {(relatedLoading || relatedItems.length > 0) && (
+                <section className="product-detail__section product-detail__related">
+                    <h2 className="product-detail__section-title">Sản phẩm liên quan</h2>
+                    {relatedLoading && relatedItems.length === 0 ? (
+                        <div className="product-detail__related-skeleton">
+                            {Array.from({ length: 4 }).map((_, i) => (
+                                <div key={i} className="product-detail__related-skeleton-card" />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="product-detail__related-grid">
+                            {relatedItems.map((rp) => (
+                                <RelatedCard key={rp.id} product={rp} />
+                            ))}
+                        </div>
+                    )}
+                </section>
+            )}
         </div>
+    );
+}
+
+function RelatedCard({ product }) {
+    const displayPrice =
+        product.salePrice != null && Number(product.salePrice) > 0
+            ? product.salePrice
+            : product.price;
+    const hasSale =
+        product.salePrice != null &&
+        Number(product.salePrice) > 0 &&
+        Number(product.salePrice) < Number(product.price);
+    const cover =
+        product.images && product.images.length > 0
+            ? product.images[0]
+            : '/placeholder-product.svg';
+
+    return (
+        <Link
+            to={`/products/${product.id}`}
+            className="related-card"
+            aria-label={product.name}
+        >
+            <div className="related-card__media">
+                <img
+                    src={cover}
+                    alt={product.name}
+                    onError={(e) => {
+                        e.currentTarget.src = '/placeholder-product.svg';
+                    }}
+                    loading="lazy"
+                />
+                {hasSale && (
+                    <span className="related-card__badge related-card__badge--sale">Giảm giá</span>
+                )}
+                {product.status === 'OUT_OF_STOCK' && (
+                    <span className="related-card__badge related-card__badge--oos">Hết hàng</span>
+                )}
+            </div>
+            <div className="related-card__body">
+                {product.categoryName && (
+                    <div className="related-card__category">{product.categoryName}</div>
+                )}
+                <h3 className="related-card__name">{product.name}</h3>
+                {product.materialNames && product.materialNames.length > 0 && (
+                    <div className="related-card__meta">
+                        {product.materialNames.join(', ')}
+                    </div>
+                )}
+                <div className="related-card__price">
+                    <span className="related-card__price-current">{formatCurrency(displayPrice)}</span>
+                    {hasSale && (
+                        <span className="related-card__price-old">{formatCurrency(product.price)}</span>
+                    )}
+                </div>
+            </div>
+        </Link>
     );
 }
 

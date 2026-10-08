@@ -32,6 +32,14 @@ export const catalogApi = {
     getProductBySlug: (slug) =>
         apiClient.get(`/products/slug/${slug}`).then(unwrap),
 
+    /**
+     * Get related products for a given product id.
+     * Returns up to `limit` items (default 8), ranked by category / material /
+     * environment / room similarity then rating.
+     */
+    getRelatedProducts: (id, limit = 8) =>
+        apiClient.get(`/products/${id}/related`, { params: { limit } }).then(unwrap),
+
     // -------- categories (tree) --------
     getCategories: () =>
         apiClient.get('/categories').then(unwrapList),
