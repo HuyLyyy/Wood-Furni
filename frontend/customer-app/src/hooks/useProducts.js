@@ -21,7 +21,7 @@ import { catalogApi } from '../services/apiCatalog.js';
  *   - copy URL to another tab → same filter state
  *   - server-side fetch re-runs on filter change because [searchParams] is in deps
  */
-export default function useProducts({ pageSize = 20 } = {}) {
+export default function useProducts({ pageSize = 10 } = {}) {
     const [searchParams, setSearchParams] = useSearchParams();
 
     const filters = readFilters(searchParams, pageSize);
