@@ -27,7 +27,7 @@ import './ProductDetailPage.css';
 export default function ProductDetailPage() {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { isAuthenticated } = useAuth();
+    const { isAuthenticated, user } = useAuth();
     const { addItem, actionBusy } = useCart();
 
     const [product, setProduct] = useState(null);
