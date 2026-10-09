@@ -138,24 +138,35 @@ export default function Footer() {
                     </ul>
                 </div>
 
-                {/* ── Col 4: Đăng ký + Newsletter ───────────────────── */}
+                {/* ── Col 4: Newsletter ──────────────────────────────── */}
                 <div className="footer__newsletter-col">
-                    <div className="footer__register-cta">
-                        <h3 className="footer__register-cta-title">
-                            Tham gia WOODFURNI ngay hôm nay
-                        </h3>
-                        <p className="footer__register-cta-desc">
-                            Đăng ký tài khoản để nhận ưu đãi độc quyền, theo dõi đơn
-                            hàng và trải nghiệm mua sắm nhanh chóng hơn.
-                        </p>
-                        <Link
-                            to="/register"
-                            className="footer__register-btn"
+                    <h3 className="footer__col-title">Đăng ký</h3>
+                    <p className="footer__newsletter-text">
+                        Đăng ký để nhận những thông tin mới nhất về sản phẩm và chương
+                        trình khuyến mãi từ WOODFURNI.
+                    </p>
+                    <form
+                        className="footer__newsletter-form"
+                        onSubmit={(e) => {
+                            e.preventDefault();
+                            window.location.href = '/register';
+                        }}
+                        aria-label="Đăng ký nhận bản tin"
+                    >
+                        <input
+                            type="email"
+                            className="footer__newsletter-input"
+                            placeholder="Nhập email của bạn"
+                            aria-label="Email đăng ký nhận bản tin"
+                            required
+                        />
+                        <button
+                            type="submit"
+                            className="footer__newsletter-btn"
                         >
-                            <span>Đăng ký ngay</span>
-                            <span aria-hidden="true">→</span>
-                        </Link>
-                    </div>
+                            Đăng ký
+                        </button>
+                    </form>
                 </div>
 
             </div>

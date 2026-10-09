@@ -63,9 +63,9 @@
     --transition-slow: 0.4s ease;
 
     /* ============ Footer ============ */
-    --footer-bg: #1e1108;           /* deep walnut — dark brand bg */
-    --footer-accent: #c8935a;      /* warm brass */
-    --footer-accent-dark: #a6733a;
+    --footer-bg: #231812;           /* espresso walnut — dark brand bg */
+    --footer-accent: #c2573a;      /* terracotta CTA */
+    --footer-accent-dark: #9e4027;
     --footer-text: #f5efe6;        /* warm off-white */
     --footer-muted: #9d8a76;       /* muted warm brown */
 }

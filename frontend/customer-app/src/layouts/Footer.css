@@ -148,7 +148,7 @@
 
 .footer__newsletter-form:focus-within {
     border-color: var(--footer-accent);
-    box-shadow: 0 0 0 3px rgba(200, 147, 90, 0.2);
+    box-shadow: 0 0 0 3px rgba(194, 87, 58, 0.2);
 }
 
 .footer__newsletter-input {
@@ -207,56 +207,7 @@
     color: var(--footer-text);
 }
 
-/* ── Register CTA ─────────────────────────────────────────────── */
-.footer__register-cta {
-    background: linear-gradient(135deg, var(--footer-accent), var(--footer-accent-dark));
-    border-radius: var(--radius-lg);
-    padding: 28px 24px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 12px;
-}
-
-.footer__register-cta-title {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: 18px;
-    font-weight: 700;
-    color: #fff;
-    line-height: 1.3;
-}
-
-.footer__register-cta-desc {
-    margin: 0;
-    font-size: 13px;
-    color: rgba(255, 255, 255, 0.75);
-    line-height: 1.6;
-}
-
-.footer__register-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    background: #fff;
-    color: var(--footer-accent);
-    font-size: 14px;
-    font-weight: 700;
-    padding: 11px 22px;
-    border-radius: var(--radius-pill);
-    text-decoration: none;
-    transition: background var(--transition-fast), color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
-    margin-top: 4px;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
-}
-
-.footer__register-btn:hover {
-    background: var(--footer-accent);
-    color: #fff;
-    transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.3);
-    text-decoration: none;
-}
+/* ── Register CTA (removed; replaced by inline newsletter form) ───── */
 
 /* ── Divider ─────────────────────────────────────────────────── */
 .footer__divider {
