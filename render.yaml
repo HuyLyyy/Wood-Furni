@@ -21,7 +21,9 @@ services:
     # Spring Boot hasn't opened the socket yet.
     healthCheckPath: /api/v1/actuator/health
     healthCheckInterval: 15
-    startupTimeout: 300
+    # Render Free Tier: first cold start needs to pull Maven deps (~3 min)
+    # and build the Docker image (~3 min). 900s (15 min) is safe.
+    startupTimeout: 900
 
     instances: 1
     region: singapore

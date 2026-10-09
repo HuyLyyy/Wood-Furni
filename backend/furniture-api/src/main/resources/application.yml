@@ -12,7 +12,12 @@ spring:
       # MongoDB URI - override with MONGODB_URI environment variable
       # Default: mongodb://localhost:27017/woodfurni
       uri: ${MONGODB_URI:mongodb://localhost:27017/woodfurni}
-      auto-index-creation: true
+      # Auto-index disabled to speed up Render Free Tier cold start.
+      # Indexes were created on first deploy; recreating them on every
+      # restart adds 5-10 minutes (analyzing 19 models) and is the
+      # root cause of "port scan timeout" on subsequent deploys.
+      # To re-enable manually: set env AUTO_INDEX_CREATION=true.
+      auto-index-creation: ${AUTO_INDEX_CREATION:false}
       # Database name (extracted from URI if not specified)
       database: ${MONGODB_DATABASE:woodfurni}
 
