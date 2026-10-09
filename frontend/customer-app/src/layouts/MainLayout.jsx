@@ -5,6 +5,7 @@ import { useAuth } from '../contexts/AuthContext.jsx';
 import { useCart } from '../contexts/CartContext.jsx';
 import { useSearchHistory } from '../hooks/useSearchHistory.js';
 import LogoSvg from '../assets/logo.svg';
+import Footer from './Footer.jsx';
 import './MainLayout.css';
 
 /**
@@ -265,37 +266,3 @@ function CartLink() {
     );
 }
 
-function Footer() {
-    return (
-        <footer className="footer">
-            <div className="container footer__inner">
-                <div className="footer__col">
-                    <h4 className="footer__title">WOODFURNI</h4>
-                    <p className="footer__text">
-                        Mộc Việt Furniture — đồ gỗ nội ngoại thất chất lượng cao.
-                    </p>
-                </div>
-                <div className="footer__col">
-                    <h4 className="footer__title">Liên kết</h4>
-                    <ul className="footer__list">
-                        <li><Link to="/products?environment=INDOOR">Nội thất</Link></li>
-                        <li><Link to="/products?environment=OUTDOOR">Ngoại thất</Link></li>
-                        <li><Link to="/orders">Đơn hàng của tôi</Link></li>
-                    </ul>
-                </div>
-                <div className="footer__col">
-                    <h4 className="footer__title">Hỗ trợ</h4>
-                    <ul className="footer__list">
-                        <li>Hotline: 1900-xxxx</li>
-                        <li>Email: support@woodfurni.vn</li>
-                    </ul>
-                </div>
-            </div>
-            <div className="footer__bottom">
-                <div className="container">
-                    © {new Date().getFullYear()} WOODFURNI. All rights reserved.
-                </div>
-            </div>
-        </footer>
-    );
-}

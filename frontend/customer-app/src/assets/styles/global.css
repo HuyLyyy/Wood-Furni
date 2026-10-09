@@ -61,6 +61,13 @@
     --transition-fast: 0.15s ease;
     --transition-base: 0.25s ease;
     --transition-slow: 0.4s ease;
+
+    /* ============ Footer ============ */
+    --footer-bg: #1e1108;           /* deep walnut — dark brand bg */
+    --footer-accent: #c8935a;      /* warm brass */
+    --footer-accent-dark: #a6733a;
+    --footer-text: #f5efe6;        /* warm off-white */
+    --footer-muted: #9d8a76;       /* muted warm brown */
 }
 
 * { box-sizing: border-box; }
