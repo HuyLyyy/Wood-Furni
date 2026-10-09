@@ -483,9 +483,24 @@ public class ReportingService {
      *       null case. Never emit null so the chart bar always has a label.</li>
      * </ol>
      *
+     * <p>WHICH ORDERS COUNT? (changed — was {@code paymentStatus = "PAID"}
+     * only, which silently dropped every COD order and every SANDBOX order
+     * that hadn't been staff-confirmed yet).
+     *
+     * <p>A row is counted when:
+     * <ul>
+     *   <li>{@code status NOT IN [CANCELLED, RETURNED, PENDING_CANCEL]} — the
+     *       order wasn't rejected or sent back</li>
+     *   <li>{@code paymentStatus != REFUNDED} — money wasn't reversed</li>
+     * </ul>
+     * This includes COD orders (paymentStatus=UNPAID, status=CONFIRMED+),
+     * SANDBOX_SUCCESS orders still in PENDING that staff haven't confirmed
+     * yet, and all paid-and-confirmed orders. The chart shows the customer's
+     * intent ("you sold N units of this product"), not accounting.
+     *
      * <p>Pipeline:
      * <pre>
-     *   $match       → only PAID orders (revenue matters)
+     *   $match       → exclude cancelled/refunded orders
      *   $unwind      → flatten Order.items
      *   $addFields   → normalise productId to string (handles both ObjectId
      *                  and string storage)
@@ -499,10 +514,22 @@ public class ReportingService {
      * </pre>
      */
     public List<TopProductResponse> getTopProducts(int limit) {
-        List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        stages.add(Aggregation.match(
+        // Exclude only orders that were cancelled or refunded. COD orders
+        // (paymentStatus=UNPAID but status=CONFIRMED) are valid sales; including
+        // them is the whole point of "bán chạy" = what customers actually
+        // bought, regardless of when the cash arrives.
+        org.springframework.data.mongodb.core.query.Criteria notCancelled =
                 new org.springframework.data.mongodb.core.query.Criteria()
-                        .and("paymentStatus").is("PAID")));
+                        .and("status").nin("CANCELLED", "RETURNED", "PENDING_CANCEL");
+        org.springframework.data.mongodb.core.query.Criteria notRefunded =
+                new org.springframework.data.mongodb.core.query.Criteria()
+                        .and("paymentStatus").ne("REFUNDED");
+        org.springframework.data.mongodb.core.query.Criteria combined =
+                new org.springframework.data.mongodb.core.query.Criteria()
+                        .andOperator(notCancelled, notRefunded);
+
+        List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
+        stages.add(Aggregation.match(combined));
         stages.add(ctx -> new Document("$unwind", "$items"));
         // Normalise items.productId to a consistent string regardless of
         // whether the order was placed via ObjectId or string field.

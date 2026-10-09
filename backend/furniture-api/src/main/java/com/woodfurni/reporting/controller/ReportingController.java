@@ -316,6 +316,35 @@ public class ReportingController {
             @RequestParam(defaultValue = "20") int limit) {
         int safeLimit = Math.max(1, Math.min(limit, 100));
 
+        // === Diagnostic: every distinct paymentStatus on the orders collection ===
+        // This is what we need to see why a newly-placed order isn't showing up
+        // in the chart — if its paymentStatus is not exactly "PAID" the report
+        // filter excludes it.
+        List<Document> paymentStatusHistogram = new ArrayList<>();
+        mongoTemplate.getCollection("orders").aggregate(java.util.List.of(
+                new org.bson.Document("$group",
+                        new org.bson.Document("_id",
+                                new org.bson.Document("paymentStatus", "$paymentStatus")
+                                        .append("status", "$status"))
+                                .append("count", new org.bson.Document("$sum", 1))))
+                .into(paymentStatusHistogram);
+
+        // All PAID orders (or whatever paymentStatus the production report uses),
+        // so the caller can see whether newly-placed orders landed in the expected bucket.
+        List<Document> allOrdersLite = new ArrayList<>();
+        mongoTemplate.getCollection("orders")
+                .find(new org.bson.Document())
+                .projection(new org.bson.Document()
+                        .append("createdAt", 1)
+                        .append("paymentStatus", 1)
+                        .append("status", 1)
+                        .append("items.productId", 1)
+                        .append("items.quantity", 1)
+                        .append("items.productName", 1))
+                .sort(new org.bson.Document("createdAt", -1))
+                .limit(50)
+                .into(allOrdersLite);
+
         // === Variant 1: the production report (current chart source) ===
         List<TopProductResponse> report = reportingService.getTopProducts(safeLimit);
 
@@ -449,13 +478,20 @@ public class ReportingController {
                 .append("groundTruthBCount", groundTruthB.size())
                 .append("orphansCount", orphans.size())
                 .append("orphans", orphans)
+                .append("paymentStatusHistogram", paymentStatusHistogram)
+                .append("recentOrders", allOrdersLite)
                 .append("comparison", new ArrayList<>(comparison.values()))
                 .append("note",
                         "If reportName == catalogName for every row, the chart is correct. "
                         + "If they differ, the report is fetching a stale/wrong name. "
                         + "snapshotName is the name captured at order-placement time "
                         + "(historical); catalogName is the current product name. "
-                        + "orphans lists productIds that no longer exist in the catalog.");
+                        + "orphans lists productIds that no longer exist in the catalog. "
+                        + "paymentStatusHistogram shows every (paymentStatus, status) "
+                        + "combination currently in the orders collection — use it to see "
+                        + "why an order isn't counted by the report. recentOrders shows the "
+                        + "50 most-recently-placed orders with their payment status, so you "
+                        + "can confirm whether your test checkout landed in the expected bucket.");
 
         return ResponseEntity.ok(ApiResponse.success(result));
     }
