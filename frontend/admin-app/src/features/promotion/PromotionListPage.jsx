@@ -9,7 +9,7 @@ import {
     PROMOTION_TYPE, PROMOTION_STATUS,
     promotionTypeLabel, promotionStatusLabel, promotionStatusTone,
 } from '../../utils/promotionMeta.js';
-import { formatCurrency, formatDate, toDateTimeLocalValue } from '../../utils/format.js';
+import { formatCurrency, formatDate, toDateTimeLocalValue, toIsoVnDateTimeLocal } from '../../utils/format.js';
 import './PromotionListPage.css';
 
 /**
@@ -191,8 +191,8 @@ function formToPayload(f) {
         type: f.type,
         value: parseFloat(f.value),
         status: f.status,
-        startDate: f.startDate ? new Date(f.startDate).toISOString() : null,
-        endDate: f.endDate ? new Date(f.endDate).toISOString() : null,
+        startDate: f.startDate ? toIsoVnDateTimeLocal(f.startDate) : null,
+        endDate: f.endDate ? toIsoVnDateTimeLocal(f.endDate) : null,
     };
     if (f.minOrderAmount !== '' && f.minOrderAmount !== null) {
         payload.minOrderAmount = parseFloat(f.minOrderAmount);

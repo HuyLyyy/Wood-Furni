@@ -1,5 +1,7 @@
 package com.woodfurni.promotion.dto;
 
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.woodfurni.common.VietnamInstantSerializer;
 import com.woodfurni.promotion.enums.PromotionStatus;
 import com.woodfurni.promotion.enums.PromotionType;
 import lombok.AllArgsConstructor;
@@ -22,7 +24,9 @@ public class PromotionResponse {
     private BigDecimal value;
     private BigDecimal minOrderAmount;
     private BigDecimal maxDiscountAmount;
+    @JsonSerialize(using = VietnamInstantSerializer.class)
     private Instant startDate;
+    @JsonSerialize(using = VietnamInstantSerializer.class)
     private Instant endDate;
     private Integer usageLimit;
     private Integer usedCount;

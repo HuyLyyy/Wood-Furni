@@ -115,3 +115,42 @@ export function toIsoBusinessDay(yyyyMmDd, edge) {
     const localAsUtcMs = Date.UTC(y, mo - 1, d, hour, minute, second, millis);
     return new Date(localAsUtcMs - VN_OFFSET_MS).toISOString();
 }
+
+/**
+ * Convert a datetime-local string ("yyyy-MM-ddTHH:mm", a VN wall-clock value)
+ * to an ISO-8601 instant with an explicit +07:00 offset so the backend
+ * deserialises it correctly regardless of how the server's JVM parses it.
+ *
+ * IMPORTANT: Do NOT use new Date(str).toISOString() here because the browser
+ * interprets a bare "yyyy-MM-ddTHH:mm" string as local time, which depends on
+ * the admin's machine timezone and will shift the instant by ±7 hours.
+ */
+export function toIsoVnDateTimeLocal(dtLocal) {
+    if (!dtLocal) return null;
+    // Parse components directly from the string — always in VN wall-clock.
+    const [datePart, timePart] = dtLocal.split('T');
+    const [y, mo, d] = datePart.split('-').map(Number);
+    const [h, mi] = timePart.split(':').map(Number);
+    // Convert VN wall-clock to UTC by subtracting the VN offset.
+    const localAsUtcMs = Date.UTC(y, mo - 1, d, h, mi, 0, 0) - VN_OFFSET_MS;
+    return new Date(localAsUtcMs).toISOString();
+}
+
+/**
+ * Convert an ISO-8601 datetime string (with explicit offset, e.g.
+ * "2026-10-10T17:00:00+07:00") to a datetime-local "yyyy-MM-ddTHH:mm" value.
+ * Works correctly regardless of the admin's browser timezone because the
+ * offset is explicit in the string — JavaScript's Date constructor respects it.
+ *
+ * Returns '' for null/invalid input.
+ */
+export function toDateTimeLocalValue(iso) {
+    if (!iso) return '';
+    try {
+        const d = new Date(iso); // parses +07:00 → correct VN date/time
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } catch {
+        return '';
+    }
+}

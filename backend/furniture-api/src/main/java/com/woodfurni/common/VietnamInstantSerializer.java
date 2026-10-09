@@ -33,9 +33,13 @@ import java.time.format.DateTimeFormatter;
  */
 public class VietnamInstantSerializer extends JsonSerializer<Instant> {
 
-    /** Output format: "yyyy-MM-dd'T'HH:mm:ss" in VN time (no Z). */
+    /** Output format: "2026-10-10T17:00:00+07:00" (VN offset).
+     *  Using ISO_OFFSET_DATE_TIME ensures the offset is always explicit,
+     *  so JavaScript new Date(str) parses it correctly in any browser TZ
+     *  and toDateTimeLocalValue() can recover the original datetime-local
+     *  value without a 7-hour shift. */
     private static final DateTimeFormatter FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX")
                     .withZone(ZoneId.of("Asia/Ho_Chi_Minh"));
 
     @Override
