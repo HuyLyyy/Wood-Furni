@@ -298,4 +298,165 @@ public class ReportingController {
         mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
         return ResponseEntity.ok(ApiResponse.success(rows));
     }
+
+    // ============================================================
+    // DEBUG: Verify top-products report correctness.
+    //
+    // Returns THREE lists side-by-side so an admin can compare and see
+    // whether the chart is lying. Remove after fix is verified.
+    //
+    //   1. report          ← same data the dashboard chart uses
+    //   2. groundTruthA    ← use items.productName (snapshot at order time)
+    //   3. groundTruthB    ← use products.name (current catalog name)
+    //   4. orphans         ← productIds in orders.items that no longer exist
+    //                        in the products collection (deleted products)
+    // ============================================================
+    @GetMapping("/_debug/top-products-verify")
+    public ResponseEntity<ApiResponse<org.bson.Document>> debugTopProductsVerify(
+            @RequestParam(defaultValue = "20") int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+
+        // === Variant 1: the production report (current chart source) ===
+        List<TopProductResponse> report = reportingService.getTopProducts(safeLimit);
+
+        // === Variant 2: ground truth from items.productName (snapshot) ===
+        //   This is the name frozen at order-placement time. If a product was
+        //   renamed later, this still shows the historical name the customer
+        //   saw when they bought it.
+        org.bson.Document matchPaid = new org.bson.Document("$match",
+                new org.bson.Document("paymentStatus", "PAID"));
+        org.bson.Document unwind = new org.bson.Document("$unwind", "$items");
+        org.bson.Document addFields = new org.bson.Document("$addFields",
+                new org.bson.Document("productIdStr",
+                        new org.bson.Document("$toString", "$items.productId")));
+        org.bson.Document groupSnapshot = new org.bson.Document("$group",
+                new org.bson.Document("_id", "$productIdStr")
+                        .append("productName",
+                                new org.bson.Document("$first", "$items.productName"))
+                        .append("totalQuantitySold",
+                                new org.bson.Document("$sum", "$items.quantity")));
+        org.bson.Document sortDesc = new org.bson.Document("$sort",
+                new org.bson.Document("totalQuantitySold", -1));
+        org.bson.Document limitStage = new org.bson.Document("$limit", safeLimit);
+
+        List<Document> groundTruthA = new ArrayList<>();
+        mongoTemplate.getCollection("orders").aggregate(java.util.List.of(
+                matchPaid, unwind, addFields, groupSnapshot, sortDesc, limitStage
+        )).into(groundTruthA);
+
+        // === Variant 3: ground truth from products.name (current catalog) ===
+        org.bson.Document lookup = new org.bson.Document("$lookup",
+                new org.bson.Document("from", "products")
+                        .append("let", new org.bson.Document("pid", "$_id"))
+                        .append("pipeline", java.util.List.of(
+                                new org.bson.Document("$match",
+                                        new org.bson.Document("$expr",
+                                                new org.bson.Document("$eq", java.util.List.of(
+                                                        "$_id",
+                                                        new org.bson.Document("$toObjectId", "$$pid")))))))
+                        .append("as", "product"));
+        org.bson.Document unwindProduct = new org.bson.Document("$unwind",
+                new org.bson.Document("path", "$product")
+                        .append("preserveNullAndEmptyArrays", true));
+        org.bson.Document project = new org.bson.Document("$project",
+                new org.bson.Document("productId", "$_id")
+                        .append("productName",
+                                new org.bson.Document("$ifNull", java.util.List.of(
+                                        "$product.name",
+                                        new org.bson.Document("$ifNull", java.util.List.of(
+                                                "$_id", "Sản phẩm đã xoá")))))
+                        .append("totalQuantitySold", 1)
+                        .append("_id", 0));
+
+        List<Document> groundTruthB = new ArrayList<>();
+        mongoTemplate.getCollection("orders").aggregate(java.util.List.of(
+                matchPaid, unwind, addFields, groupSnapshot, sortDesc, limitStage,
+                lookup, unwindProduct, project
+        )).into(groundTruthB);
+
+        // === Variant 4: orphans — productIds in paid orders with no matching product ===
+        List<String> paidProductIds = new ArrayList<>();
+        for (Document d : mongoTemplate.getCollection("orders").aggregate(java.util.List.of(
+                matchPaid, unwind, addFields,
+                new org.bson.Document("$group",
+                        new org.bson.Document("_id", "$productIdStr"))
+        )).into(new ArrayList<>())) {
+            paidProductIds.add(d.getString("_id"));
+        }
+        List<String> orphans = new ArrayList<>();
+        if (!paidProductIds.isEmpty()) {
+            List<org.bson.types.ObjectId> oidList = new ArrayList<>();
+            for (String s : paidProductIds) {
+                if (org.bson.types.ObjectId.isValid(s)) {
+                    oidList.add(new org.bson.types.ObjectId(s));
+                }
+            }
+            List<Document> found = new ArrayList<>();
+            if (!oidList.isEmpty()) {
+                mongoTemplate.getCollection("products")
+                        .find(new org.bson.Document("_id",
+                                new org.bson.Document("$in", oidList)))
+                        .projection(new org.bson.Document("_id", 1))
+                        .into(found);
+            }
+            java.util.Set<String> foundIds = new java.util.HashSet<>();
+            for (Document d : found) foundIds.add(d.getObjectId("_id").toHexString());
+            for (String s : paidProductIds) {
+                if (!foundIds.contains(s)) orphans.add(s);
+            }
+        }
+
+        // === Build a side-by-side comparison ===
+        // For each (productId) present in any list, capture the qty and the
+        // three different name sources so the admin can see exactly which
+        // one is wrong (if any).
+        java.util.Map<String, Document> comparison = new java.util.LinkedHashMap<>();
+        java.util.function.BiConsumer<TopProductResponse, String> put = (row, source) -> {
+            String pid = row.getProductId();
+            if (pid == null) return;
+            Document e = comparison.computeIfAbsent(pid, k -> new Document("productId", pid));
+            e.append("qty", row.getTotalQuantitySold());
+            e.append(source, row.getProductName());
+        };
+        for (TopProductResponse r : report) put.accept(r, "reportName");
+        for (Document d : groundTruthA) {
+            String pid = d.getString("_id");
+            if (pid == null) continue;
+            Document e = comparison.computeIfAbsent(pid, k -> new Document("productId", pid));
+            e.append("snapshotName", d.getString("productName"));
+            if (e.get("qty") == null) e.append("qty", d.get("totalQuantitySold"));
+        }
+        for (Document d : groundTruthB) {
+            String pid = d.getString("productId");
+            if (pid == null) continue;
+            Document e = comparison.computeIfAbsent(pid, k -> new Document("productId", pid));
+            e.append("catalogName", d.getString("productName"));
+            if (e.get("qty") == null) e.append("qty", d.get("totalQuantitySold"));
+        }
+
+        // Add qty from the truth queries for any productId only present in those.
+        for (Document d : groundTruthA) {
+            String pid = d.getString("_id");
+            if (pid == null) continue;
+            Document e = comparison.computeIfAbsent(pid, k -> new Document("productId", pid));
+            if (e.get("qty") == null) e.append("qty", d.get("totalQuantitySold"));
+        }
+
+        org.bson.Document result = new org.bson.Document()
+                .append("limit", safeLimit)
+                .append("reportCount", report.size())
+                .append("groundTruthACount", groundTruthA.size())
+                .append("groundTruthBCount", groundTruthB.size())
+                .append("orphansCount", orphans.size())
+                .append("orphans", orphans)
+                .append("comparison", new ArrayList<>(comparison.values()))
+                .append("note",
+                        "If reportName == catalogName for every row, the chart is correct. "
+                        + "If they differ, the report is fetching a stale/wrong name. "
+                        + "snapshotName is the name captured at order-placement time "
+                        + "(historical); catalogName is the current product name. "
+                        + "orphans lists productIds that no longer exist in the catalog.");
+
+        return ResponseEntity.ok(ApiResponse.success(result));
+    }
 }
