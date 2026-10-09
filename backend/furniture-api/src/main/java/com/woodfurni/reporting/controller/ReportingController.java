@@ -321,12 +321,14 @@ public class ReportingController {
         // in the chart — if its paymentStatus is not exactly "PAID" the report
         // filter excludes it.
         List<Document> paymentStatusHistogram = new ArrayList<>();
-        mongoTemplate.getCollection("orders").aggregate(java.util.List.of(
-                new org.bson.Document("$group",
-                        new org.bson.Document("_id",
-                                new org.bson.Document("paymentStatus", "$paymentStatus")
-                                        .append("status", "$status"))
-                                .append("count", new org.bson.Document("$sum", 1))))
+        org.bson.Document groupId = new org.bson.Document()
+                .append("paymentStatus", "$paymentStatus")
+                .append("status", "$status");
+        org.bson.Document histGroup = new org.bson.Document()
+                .append("_id", groupId)
+                .append("count", new org.bson.Document("$sum", 1));
+        mongoTemplate.getCollection("orders")
+                .aggregate(java.util.List.of(new org.bson.Document("$group", histGroup)))
                 .into(paymentStatusHistogram);
 
         // All PAID orders (or whatever paymentStatus the production report uses),
