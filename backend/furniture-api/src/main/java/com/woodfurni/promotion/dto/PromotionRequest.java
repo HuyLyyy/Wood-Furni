@@ -1,5 +1,6 @@
 package com.woodfurni.promotion.dto;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.woodfurni.promotion.enums.PromotionType;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
@@ -34,10 +35,24 @@ public class PromotionRequest {
     @Positive(message = "Max discount amount must be positive")
     private BigDecimal maxDiscountAmount;
 
+    /**
+     * Parsed from HTML &lt;input type="datetime-local"&gt; value ("yyyy-MM-ddTHH:mm")
+     * sent by the admin frontend.
+     * Jackson deserialises this using {@link #DATE_TIME_LOCAL_FORMAT}.
+     * Stored in DB as {@code Instant} (UTC).
+     */
     @NotNull(message = "Start date is required")
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm", timezone = "Asia/Ho_Chi_Minh")
     private Instant startDate;
 
+    /**
+     * Parsed from HTML &lt;input type="datetime-local"&gt; value ("yyyy-MM-ddTHH:mm")
+     * sent by the admin frontend.
+     * Jackson deserialises this using {@link #DATE_TIME_LOCAL_FORMAT}.
+     * Stored in DB as {@code Instant} (UTC).
+     */
     @NotNull(message = "End date is required")
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm", timezone = "Asia/Ho_Chi_Minh")
     private Instant endDate;
 
     @PositiveOrZero(message = "Usage limit cannot be negative")
