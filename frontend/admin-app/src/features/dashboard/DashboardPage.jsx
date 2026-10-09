@@ -313,7 +313,11 @@ export default function DashboardPage() {
                             <ResponsiveContainer width="100%" height={Math.max(280, topProducts.length * 28 + 60)}>
                                 <BarChart
                                     data={topProducts.map((p) => ({
-                                        name: truncate(p.productName, 28),
+                                        // Defense-in-depth: backend now always returns
+                                        // a non-null productName, but if a future code
+                                        // path ever leaks null we still want a readable
+                                        // label on the chart.
+                                        name: truncate(p.productName || formatProductIdFallback(p.productId), 28),
                                         value: Number(p.totalQuantitySold) || 0,
                                     }))}
                                     layout="vertical"
@@ -364,6 +368,17 @@ function ChartEmpty({ text }) {
 function truncate(s, n) {
     if (!s) return '';
     return s.length > n ? `${s.slice(0, n - 1)}…` : s;
+}
+
+/**
+ * Last-resort fallback when the backend sends a row with no resolvable name
+ * (orphaned productId, etc). We render the last 6 chars of the id so the
+ * admin can still tell rows apart on the chart.
+ */
+function formatProductIdFallback(productId) {
+    if (!productId) return 'Sản phẩm';
+    const tail = productId.slice(-6);
+    return `SP #${tail}`;
 }
 
 const STATUS_COLORS = {

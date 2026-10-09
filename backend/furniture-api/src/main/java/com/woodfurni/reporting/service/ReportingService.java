@@ -497,9 +497,18 @@ public class ReportingService {
         stages.add(ctx -> new Document("$unwind",
                 new Document("path", "$product")
                         .append("preserveNullAndEmptyArrays", true)));
+        // Fallback: if the joined product was deleted (or name is missing for
+        // any reason) we still want a readable label on the dashboard chart.
+        // We prefer `product.name`, then the productId, then a generic string
+        // — never null, otherwise the FE chart bar renders an empty label.
         stages.add(ctx -> new Document("$project",
                 new Document("productId", "$_id")
-                        .append("productName", "$product.name")
+                        .append("productName",
+                                new Document("$ifNull", java.util.List.of(
+                                        "$product.name",
+                                        new Document("$ifNull", java.util.List.of(
+                                                new Document("$toString", "$_id"),
+                                                "Sản phẩm đã xoá")))))
                         .append("totalQuantitySold", 1)
                         .append("_id", 0)));
 
