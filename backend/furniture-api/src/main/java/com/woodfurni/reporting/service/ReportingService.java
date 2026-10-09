@@ -470,11 +470,15 @@ public class ReportingService {
      * Pipeline:
      *   $match  → only PAID orders (revenue matters)
      *   $unwind → flatten Order.items array
-     *   $group  → group by productId, sum quantity
+     *   $addFields → normalise productId to string (orders collection may
+     *                store it as ObjectId or string depending on insertion path)
+     *   $group  → group by productId-string, sum quantity
      *   $sort   → desc by totalQuantitySold
      *   $limit  → top N
-     *   $lookup → join products collection to fetch name
-     *   $project → reshape
+     *   $lookup → join products collection (foreignField is _id as ObjectId;
+     *              pipeline passes string so $expr converts back for the match)
+     *   $project → reshape; $ifNull chain ensures a readable label is always
+     *              produced: product.name → productId string → "Sản phẩm đã xoá"
      */
     public List<TopProductResponse> getTopProducts(int limit) {
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
@@ -482,32 +486,47 @@ public class ReportingService {
                 new org.springframework.data.mongodb.core.query.Criteria()
                         .and("paymentStatus").is("PAID")));
         stages.add(ctx -> new Document("$unwind", "$items"));
+        // Normalise items.productId to a consistent string regardless of
+        // whether the order was placed via ObjectId or string field.
+        // This fixes the "ObjectId(...)" chart label bug caused by type mismatch
+        // between the lookup foreignField (_id/ObjectId) and localField
+        // (could be ObjectId or string depending on how the order was saved).
+        stages.add(ctx -> new Document("$addFields",
+                new Document("productIdStr",
+                        new Document("$toString", "$items.productId"))));
         stages.add(ctx -> new Document("$group",
-                new Document("_id", "$items.productId")
+                new Document("_id", "$productIdStr")
                         .append("totalQuantitySold",
                                 new Document("$sum", "$items.quantity"))));
         stages.add(ctx -> new Document("$sort",
                 new Document("totalQuantitySold", -1)));
         stages.add(ctx -> new Document("$limit", limit));
+        // Lookup by string; $expr with $toObjectId lets MongoDB match string
+        // localField against ObjectId foreignField without type-cast issues.
         stages.add(ctx -> new Document("$lookup",
                 new Document("from", COL_PRODUCTS)
-                        .append("localField", "_id")
-                        .append("foreignField", "_id")
+                        .append("let", new Document("pid", "$_id"))
+                        .append("pipeline", java.util.List.of(
+                                new Document("$match",
+                                        new Document("$expr",
+                                                new Document("$eq", java.util.List.of(
+                                                        "$_id",
+                                                        new Document("$toObjectId", "$$pid")))))))
                         .append("as", "product")));
         stages.add(ctx -> new Document("$unwind",
                 new Document("path", "$product")
                         .append("preserveNullAndEmptyArrays", true)));
-        // Fallback: if the joined product was deleted (or name is missing for
-        // any reason) we still want a readable label on the dashboard chart.
-        // We prefer `product.name`, then the productId, then a generic string
-        // — never null, otherwise the FE chart bar renders an empty label.
+        // Always produce a non-null label:
+        //   1. product.name          — normal case
+        //   2. _id (string)           — orphaned productId (deleted product)
+        //   3. "Sản phẩm đã xoá"     — truly null (shouldn't happen)
         stages.add(ctx -> new Document("$project",
                 new Document("productId", "$_id")
                         .append("productName",
                                 new Document("$ifNull", java.util.List.of(
                                         "$product.name",
                                         new Document("$ifNull", java.util.List.of(
-                                                new Document("$toString", "$_id"),
+                                                "$_id",
                                                 "Sản phẩm đã xoá")))))
                         .append("totalQuantitySold", 1)
                         .append("_id", 0)));
@@ -519,8 +538,7 @@ public class ReportingService {
 
         List<TopProductResponse> list = new ArrayList<>();
         for (Document doc : results) {
-            Object pidObj = doc.get("productId");
-            String productId = pidObj == null ? null : pidObj.toString();
+            String productId = doc.getString("productId");
             String productName = doc.getString("productName");
             Number totalSold = (Number) doc.get("totalQuantitySold");
             list.add(TopProductResponse.builder()
