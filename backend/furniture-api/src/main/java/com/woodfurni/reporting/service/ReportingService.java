@@ -467,18 +467,36 @@ public class ReportingService {
     /**
      * Top N selling products by total quantity sold.
      *
-     * Pipeline:
-     *   $match  → only PAID orders (revenue matters)
-     *   $unwind → flatten Order.items array
-     *   $addFields → normalise productId to string (orders collection may
-     *                store it as ObjectId or string depending on insertion path)
-     *   $group  → group by productId-string, sum quantity
-     *   $sort   → desc by totalQuantitySold
-     *   $limit  → top N
-     *   $lookup → join products collection (foreignField is _id as ObjectId;
-     *              pipeline passes string so $expr converts back for the match)
-     *   $project → reshape; $ifNull chain ensures a readable label is always
-     *              produced: product.name → productId string → "Sản phẩm đã xoá"
+     * <p>NAME RESOLUTION ORDER (matters!):
+     * <ol>
+     *   <li>{@code items.productName} — the name frozen at order-placement
+     *       time. This is the name the customer actually bought under, and
+     *       therefore the correct label for a "best-seller" chart.
+     *       Preserves historical accuracy even if the admin renames the
+     *       product later.</li>
+     *   <li>{@code products.name} — the current catalog name. Used only
+     *       when the order was created via a code path that didn't snapshot
+     *       the name (legacy data, manual DB writes, etc.).</li>
+     *   <li>The productId string — last resort when the joined product
+     *       was deleted entirely (orphan).</li>
+     *   <li>"Sản phẩm đã xoá" — generic Vietnamese string for the truly
+     *       null case. Never emit null so the chart bar always has a label.</li>
+     * </ol>
+     *
+     * <p>Pipeline:
+     * <pre>
+     *   $match       → only PAID orders (revenue matters)
+     *   $unwind      → flatten Order.items
+     *   $addFields   → normalise productId to string (handles both ObjectId
+     *                  and string storage)
+     *   $group       → by productId-string, sum quantity, keep first
+     *                  items.productName snapshot
+     *   $sort        → desc by totalQuantitySold
+     *   $limit       → top N
+     *   $lookup      → join products (for current catalog name as fallback
+     *                  and for type-safe ObjectId match)
+     *   $project     → choose name per resolution order above
+     * </pre>
      */
     public List<TopProductResponse> getTopProducts(int limit) {
         List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
@@ -488,14 +506,13 @@ public class ReportingService {
         stages.add(ctx -> new Document("$unwind", "$items"));
         // Normalise items.productId to a consistent string regardless of
         // whether the order was placed via ObjectId or string field.
-        // This fixes the "ObjectId(...)" chart label bug caused by type mismatch
-        // between the lookup foreignField (_id/ObjectId) and localField
-        // (could be ObjectId or string depending on how the order was saved).
         stages.add(ctx -> new Document("$addFields",
                 new Document("productIdStr",
                         new Document("$toString", "$items.productId"))));
         stages.add(ctx -> new Document("$group",
                 new Document("_id", "$productIdStr")
+                        .append("snapshotName",
+                                new Document("$first", "$items.productName"))
                         .append("totalQuantitySold",
                                 new Document("$sum", "$items.quantity"))));
         stages.add(ctx -> new Document("$sort",
@@ -516,15 +533,18 @@ public class ReportingService {
         stages.add(ctx -> new Document("$unwind",
                 new Document("path", "$product")
                         .append("preserveNullAndEmptyArrays", true)));
-        // Always produce a non-null label:
-        //   1. product.name          — normal case
-        //   2. _id (string)           — orphaned productId (deleted product)
-        //   3. "Sản phẩm đã xoá"     — truly null (shouldn't happen)
+        // Name resolution order (MATCHES the docstring above):
+        //   1. snapshotName (orders.items[].productName at checkout)   ← PRIMARY
+        //   2. product.name (current catalog name)                      ← FALLBACK
+        //   3. _id (string)                                             ← ORPHAN
+        //   4. "Sản phẩm đã xoá"                                       ← NULL GUARD
         stages.add(ctx -> new Document("$project",
                 new Document("productId", "$_id")
                         .append("productName",
                                 new Document("$ifNull", java.util.List.of(
-                                        "$product.name",
+                                        new Document("$ifNull", java.util.List.of(
+                                                "$snapshotName",
+                                                "$product.name")),
                                         new Document("$ifNull", java.util.List.of(
                                                 "$_id",
                                                 "Sản phẩm đã xoá")))))
