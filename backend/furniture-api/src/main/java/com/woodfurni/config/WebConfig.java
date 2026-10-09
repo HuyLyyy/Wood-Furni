@@ -57,8 +57,14 @@ public class WebConfig implements WebMvcConfigurer {
     /**
      * Servlet filter that stamps `;charset=UTF-8` on every response,
      * including error pages that bypass the message converters above.
+     *
+     * <p>Bean name is intentionally <strong>not</strong> {@code characterEncodingFilter}
+     * because Spring Boot's {@code HttpEncodingAutoConfiguration} already
+     * registers a bean with that exact name; defining ours under the same
+     * name would throw {@code BeanDefinitionOverrideException} on startup
+     * (default behaviour: overriding is disabled).
      */
-    @Bean
+    @Bean(name = "woodfurniUtf8ResponseFilter")
     public jakarta.servlet.Filter characterEncodingFilter() {
         return (servletRequest, servletResponse, filterChain) -> {
             jakarta.servlet.http.HttpServletResponse response =
