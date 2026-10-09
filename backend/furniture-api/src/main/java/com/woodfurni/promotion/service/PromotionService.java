@@ -243,6 +243,14 @@ public class PromotionService {
         if (request.getUsageLimit() != null) {
             promotion.setUsageLimit(request.getUsageLimit());
         }
+        if (request.getStatus() != null && !request.getStatus().isBlank()) {
+            try {
+                promotion.setStatus(PromotionStatus.valueOf(request.getStatus()));
+            } catch (IllegalArgumentException ex) {
+                throw new IllegalArgumentException(
+                        "Invalid promotion status: " + request.getStatus());
+            }
+        }
 
         Promotion saved = promotionRepository.save(promotion);
         return toResponse(saved);

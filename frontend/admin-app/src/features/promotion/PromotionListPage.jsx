@@ -142,6 +142,7 @@ export default function PromotionListPage() {
 
             {editing && (
                 <PromotionFormModal
+                    key={editing === 'new' ? 'new' : editing.id}
                     initial={editing === 'new' ? null : editing}
                     onClose={() => setEditing(null)}
                     onSaved={() => { setEditing(null); load(); }}
