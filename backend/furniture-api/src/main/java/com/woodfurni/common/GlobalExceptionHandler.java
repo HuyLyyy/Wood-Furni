@@ -2,6 +2,7 @@ package com.woodfurni.common;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -117,6 +118,36 @@ public class GlobalExceptionHandler {
 
         ApiResponse<Object> response = ApiResponse.error(ex.getMessage());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
+    /**
+     * Handles malformed JSON request bodies (HttpMessageNotReadableException).
+     * Common causes:
+     *   - JSON syntax error (trailing comma, missing brace, // comments, …)
+     *   - Field with the wrong type (e.g. null where @NotNull is required)
+     *   - Date/time string in a format Jackson can't deserialise into Instant
+     *     (e.g. "2026-12-31T23:59" without offset — use "2026-12-31T23:59:00Z"
+     *     or rely on the DTO's @JsonFormat, which for PromotionRequest
+     *     accepts "yyyy-MM-dd'T'HH:mm" in Asia/Ho_Chi_Minh).
+     *
+     * Returns 400 with a short, actionable message instead of leaking the
+     * 30-line nested stack trace Spring sends by default.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Object>> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException ex) {
+        // Root cause is usually one level down (JsonParseException,
+        // InvalidFormatException, …) and contains the real hint.
+        Throwable cause = ex.getMostSpecificCause();
+        String rootMsg = cause != null ? cause.getMessage() : ex.getMessage();
+        // Keep the message short — stack frames confuse Swagger UI testers.
+        String message = "Malformed request body: "
+                + (rootMsg != null ? rootMsg.split("\\R", 2)[0] : "unknown");
+        // Log full stack for ops, but only return the cause's first line
+        // to the client so the response stays small.
+        log.warn("Malformed request body: {}", rootMsg);
+        ApiResponse<Object> response = ApiResponse.error(message);
+        return ResponseEntity.badRequest().body(response);
     }
 
     /**
