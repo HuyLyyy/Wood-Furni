@@ -1,6 +1,9 @@
 package com.woodfurni.promotion.dto;
 
-import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.woodfurni.common.FlexibleInstantDeserializer;
+import com.woodfurni.common.VietnamInstantSerializer;
 import com.woodfurni.promotion.enums.PromotionType;
 import jakarta.validation.constraints.*;
 import lombok.AllArgsConstructor;
@@ -36,23 +39,27 @@ public class PromotionRequest {
     private BigDecimal maxDiscountAmount;
 
     /**
-     * Parsed from HTML &lt;input type="datetime-local"&gt; value ("yyyy-MM-ddTHH:mm")
-     * sent by the admin frontend.
-     * Jackson deserialises this using {@link #DATE_TIME_LOCAL_FORMAT}.
+     * Parsed from multiple input formats:
+     * <ul>
+     *   <li>"2026-10-01T08:49:00.000Z" — browser JSON (ISO UTC)</li>
+     *   <li>"2026-10-01T08:49:00Z" — ISO without millis</li>
+     *   <li>"2026-10-01T08:49:00+07:00" — ISO with VN offset</li>
+     *   <li>"2026-10-01T08:49" — HTML datetime-local (VN wall-clock)</li>
+     * </ul>
      * Stored in DB as {@code Instant} (UTC).
      */
     @NotNull(message = "Start date is required")
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm", timezone = "Asia/Ho_Chi_Minh")
+    @JsonDeserialize(using = FlexibleInstantDeserializer.class)
+    @JsonSerialize(using = VietnamInstantSerializer.class)
     private Instant startDate;
 
     /**
-     * Parsed from HTML &lt;input type="datetime-local"&gt; value ("yyyy-MM-ddTHH:mm")
-     * sent by the admin frontend.
-     * Jackson deserialises this using {@link #DATE_TIME_LOCAL_FORMAT}.
+     * Same flexible parsing as {@link #startDate}.
      * Stored in DB as {@code Instant} (UTC).
      */
     @NotNull(message = "End date is required")
-    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm", timezone = "Asia/Ho_Chi_Minh")
+    @JsonDeserialize(using = FlexibleInstantDeserializer.class)
+    @JsonSerialize(using = VietnamInstantSerializer.class)
     private Instant endDate;
 
     @PositiveOrZero(message = "Usage limit cannot be negative")
