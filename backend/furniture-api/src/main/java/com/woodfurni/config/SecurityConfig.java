@@ -99,6 +99,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/products/*/reviews/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/admin/reviews").permitAll()
 
+                        // Debug endpoints for revenue pipeline diagnostics
+                        .requestMatchers("/api/v1/admin/dashboard/_debug/**").permitAll()
+
                         // Swagger / OpenAPI
                         .requestMatchers(
                                 "/swagger-ui/**",
