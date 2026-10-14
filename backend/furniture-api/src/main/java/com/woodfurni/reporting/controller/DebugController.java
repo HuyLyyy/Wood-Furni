@@ -65,18 +65,24 @@ public class DebugController {
                         new Document("$toString", "$items.productId")));
 
         // Use $lookup with $expr + $or so we handle BOTH string and ObjectId
-        // productId values. The $or tries $toObjectId first; if that fails
-        // (because productId is a plain string), the fallback $eq to "$$pid"
-        // matches the string-typed product _id. This works for both shapes.
+        // productId values. Use $convert (not $toObjectId) so invalid hex
+        // strings fall through to the string-equality fallback instead of
+        // throwing MongoCommandException.
         Document lookupProduct = new Document("$lookup",
                 new Document("from", "products")
                         .append("let", new Document("pid", "$productIdStr"))
                         .append("pipeline", List.of(
                                 new Document("$match", new Document("$expr",
                                         new Document("$or", List.of(
+                                                // 1) try matching as ObjectId, swallow conversion errors
                                                 new Document("$eq", List.of(
                                                         "$_id",
-                                                        new Document("$toObjectId", "$$pid"))),
+                                                        new Document("$convert", new Document()
+                                                                .append("input", "$$pid")
+                                                                .append("to", "objectId")
+                                                                .append("onError", null)
+                                                                .append("onNull", null)))),
+                                                // 2) fallback: match as string
                                                 new Document("$eq", List.of(
                                                         "$_id",
                                                         "$$pid"))
@@ -126,7 +132,14 @@ public class DebugController {
         );
 
         List<Document> rows = new ArrayList<>();
-        mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
+        try {
+            mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            List<Document> errorList = new ArrayList<>();
+            Throwable cause = ex.getCause();
+            errorList.add(new Document("error", cause != null ? cause.getMessage() : ex.getMessage()));
+            return ResponseEntity.ok(ApiResponse.success(errorList));
+        }
         return ResponseEntity.ok(ApiResponse.success(rows));
     }
 
