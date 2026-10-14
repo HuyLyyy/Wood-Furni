@@ -74,6 +74,9 @@ app.use('/uploads', createProxyMiddleware({
     },
 }));
 
+// Health check endpoint for Render.
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
+
 // JSON parser for /internal/notify/* routes only (NOT for /api/* which is proxied).
 // We deliberately register it AFTER the proxy so the proxy sees the raw stream.
 app.use('/internal', express.json({ limit: '256kb' }));
