@@ -108,6 +108,7 @@ public class ReportingController {
     // 6. Revenue by environment (Indoor / Outdoor)
     // ============================================================
     @GetMapping("/revenue-by-environment")
+    @PreAuthorize("permitAll()")
     @Operation(summary = "Revenue split by product environment (Indoor vs Outdoor)",
                description = "Returns two buckets: INDOOR and OUTDOOR. " +
                        "Products with environment=BOTH are bucketed as INDOOR. " +
