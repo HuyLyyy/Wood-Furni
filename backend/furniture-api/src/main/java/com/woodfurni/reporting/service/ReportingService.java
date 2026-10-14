@@ -720,41 +720,31 @@ public class ReportingService {
     public List<EnvironmentRevenueResponse> getEnvironmentRevenue() {
         // Same "which orders count" rule as getTopProducts — including COD,
         // excluding CANCELLED/RETURNED/REFUNDED.
-        org.springframework.data.mongodb.core.query.Criteria notCancelled =
-                new org.springframework.data.mongodb.core.query.Criteria()
-                        .and("status").nin("CANCELLED", "RETURNED", "PENDING_CANCEL");
-        org.springframework.data.mongodb.core.query.Criteria notRefunded =
-                new org.springframework.data.mongodb.core.query.Criteria()
-                        .and("paymentStatus").ne("REFUNDED");
-        org.springframework.data.mongodb.core.query.Criteria orderFilter =
-                new org.springframework.data.mongodb.core.query.Criteria()
-                        .andOperator(notCancelled, notRefunded);
+        //
+        // NOTE: built as raw $match Documents (not Criteria) and run via
+        // getCollection().aggregate() so we don't have to fight Spring Data
+        // MongoDB's stage-builder API. This matches the pattern used by the
+        // /_debug/* endpoints in ReportingController, which run reliably.
+        org.bson.Document orderMatch = new org.bson.Document("$match",
+                new org.bson.Document("$and", java.util.List.of(
+                        new org.bson.Document("status",
+                                new org.bson.Document("$nin",
+                                        java.util.List.of("CANCELLED", "RETURNED", "PENDING_CANCEL"))),
+                        new org.bson.Document("paymentStatus",
+                                new org.bson.Document("$ne", "REFUNDED"))
+                )));
 
-        // When BOTH, the admin wanted it to count toward INDOOR. The
-        // pipeline rewrites the product.environment using $cond so we can
-        // still $group by the normalised bucket in a single pass.
-        org.bson.Document rewriteEnv = new org.bson.Document("$addFields",
-                new org.bson.Document("normalisedEnv",
-                        new org.bson.Document("$cond", java.util.List.of(
-                                new org.bson.Document("$eq",
-                                        java.util.List.of("$product.environment", "BOTH")),
-                                "INDOOR",
-                                "$product.environment"))));
+        org.bson.Document unwindItems = new org.bson.Document("$unwind", "$items");
 
-        org.bson.Document matchKnownProduct = new org.bson.Document("$match",
-                new org.bson.Document("normalisedEnv",
-                        new org.bson.Document("$in", java.util.List.of("INDOOR", "OUTDOOR"))));
-
-        List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
-        stages.add(Aggregation.match(orderFilter));
-        stages.add(ctx -> new org.bson.Document("$unwind", "$items"));
-        stages.add(ctx -> new org.bson.Document("$addFields",
+        // Normalise productId to string so the $lookup below matches both
+        // string-typed and ObjectId-typed productId values.
+        org.bson.Document addProductIdStr = new org.bson.Document("$addFields",
                 new org.bson.Document("productIdStr",
-                        new org.bson.Document("$toString", "$items.productId"))));
-        // Join products using string-vs-ObjectId $expr — same pattern as
-        // getTopProducts, so productId is found whether stored as String
-        // or as ObjectId in the order.
-        stages.add(ctx -> new org.bson.Document("$lookup",
+                        new org.bson.Document("$toString", "$items.productId")));
+
+        // Join products. Use $toObjectId in $expr to compare string localField
+        // with ObjectId foreignField (same pattern as getTopProducts).
+        org.bson.Document lookupProduct = new org.bson.Document("$lookup",
                 new org.bson.Document("from", COL_PRODUCTS)
                         .append("let", new org.bson.Document("pid", "$productIdStr"))
                         .append("pipeline", java.util.List.of(
@@ -763,32 +753,57 @@ public class ReportingService {
                                                 new org.bson.Document("$eq", java.util.List.of(
                                                         "$_id",
                                                         new org.bson.Document("$toObjectId", "$$pid")))))))
-                        .append("as", "product")));
-        stages.add(ctx -> new org.bson.Document("$unwind",
+                        .append("as", "product"));
+
+        // preserveNullAndEmptyArrays=false so orders whose product was
+        // deleted are dropped (they have no environment to attribute to).
+        org.bson.Document unwindProduct = new org.bson.Document("$unwind",
                 new org.bson.Document("path", "$product")
-                        .append("preserveNullAndEmptyArrays", false)));
-        stages.add(ctx -> rewriteEnv);
-        stages.add(ctx -> matchKnownProduct);
-        stages.add(ctx -> new org.bson.Document("$group",
+                        .append("preserveNullAndEmptyArrays", false));
+
+        // BOTH → INDOOR. Use $ifNull so missing/unknown environments end up
+        // as INDOOR (defensive — production data may have nulls in older rows).
+        org.bson.Document normaliseEnv = new org.bson.Document("$addFields",
+                new org.bson.Document("normalisedEnv",
+                        new org.bson.Document("$cond", java.util.List.of(
+                                new org.bson.Document("$eq",
+                                        java.util.List.of("$product.environment", "BOTH")),
+                                "INDOOR",
+                                new org.bson.Document("$ifNull",
+                                        java.util.List.of("$product.environment", "INDOOR"))))));
+
+        // Keep only INDOOR / OUTDOOR rows (drops any orphan/null environments).
+        org.bson.Document matchKnownEnv = new org.bson.Document("$match",
+                new org.bson.Document("normalisedEnv",
+                        new org.bson.Document("$in", java.util.List.of("INDOOR", "OUTDOOR"))));
+
+        // Guard against null unitPrice on legacy order items — coerce to
+        // decimal with $ifNull so $multiply never sees null.
+        org.bson.Document groupByEnv = new org.bson.Document("$group",
                 new org.bson.Document("_id", "$normalisedEnv")
                         .append("revenue",
                                 new org.bson.Document("$sum",
-                                        new org.bson.Document("$multiply",
-                                                java.util.List.of("$items.unitPrice", "$items.quantity"))))
+                                        new org.bson.Document("$multiply", java.util.List.of(
+                                                new org.bson.Document("$ifNull",
+                                                        java.util.List.of("$items.unitPrice", 0)),
+                                                new org.bson.Document("$ifNull",
+                                                        java.util.List.of("$items.quantity", 0))))))
                         .append("orderCount",
-                                new org.bson.Document("$sum", 1))));
-        stages.add(ctx -> new org.bson.Document("$project",
+                                new org.bson.Document("$sum", 1)));
+
+        org.bson.Document project = new org.bson.Document("$project",
                 new org.bson.Document("environment", "$_id")
                         .append("revenue", 1)
                         .append("orderCount", 1)
-                        .append("_id", 0)));
-        stages.add(ctx -> new org.bson.Document("$sort",
-                new org.bson.Document("revenue", -1)));
+                        .append("_id", 0));
 
-        Aggregation pipeline = Aggregation.newAggregation(stages);
+        java.util.List<org.bson.Document> pipeline = java.util.Arrays.asList(
+                orderMatch, unwindItems, addProductIdStr, lookupProduct,
+                unwindProduct, normaliseEnv, matchKnownEnv, groupByEnv, project
+        );
 
-        AggregationResults<org.bson.Document> results = mongoTemplate.aggregate(
-                pipeline, COL_ORDERS, org.bson.Document.class);
+        List<org.bson.Document> rows = new ArrayList<>();
+        mongoTemplate.getCollection(COL_ORDERS).aggregate(pipeline).into(rows);
 
         // Always emit BOTH buckets so the frontend never has to guess what
         // zero-revenue environments mean. (A freshly-opened shop may have
@@ -796,7 +811,7 @@ public class ReportingService {
         // pie so the admin knows the data is being read.)
         Map<String, BigDecimal> revenueByEnv = new java.util.LinkedHashMap<>();
         Map<String, Long> countByEnv = new java.util.LinkedHashMap<>();
-        for (org.bson.Document doc : results) {
+        for (org.bson.Document doc : rows) {
             String env = doc.getString("environment");
             if (env == null) continue;
             revenueByEnv.put(env, toBigDecimal(doc.get("revenue")));
