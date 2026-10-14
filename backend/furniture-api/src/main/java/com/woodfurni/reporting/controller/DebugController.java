@@ -145,4 +145,68 @@ public class DebugController {
                 .into(rows);
         return ResponseEntity.ok(ApiResponse.success(rows));
     }
+
+    /**
+     * Same as revenue-by-environment-verify, but uses $toObjectId in the
+     * $lookup so we can compare which variant succeeds. If this returns
+     * non-empty data but the original returns [] → MongoDB isn't
+     * auto-converting string↔ObjectId in the localField/foreignField form.
+     */
+    @GetMapping("/revenue-by-environment-verify-toobjectid")
+    public ResponseEntity<ApiResponse<List<Document>>> debugRevenueByEnvironmentToObjectId() {
+        Document unwindItems = new Document("$unwind", "$items");
+
+        Document addProductIdStr = new Document("$addFields",
+                new Document("productIdStr",
+                        new Document("$toString", "$items.productId")));
+
+        // Use $expr with $toObjectId to force the type conversion
+        Document lookupProduct = new Document("$lookup",
+                new Document("from", "products")
+                        .append("let", new Document("pid", "$productIdStr"))
+                        .append("pipeline", List.of(
+                                new Document("$match", new Document("$expr",
+                                        new Document("$eq", List.of(
+                                                "$_id",
+                                                new Document("$toObjectId", "$$pid")))))))
+                        .append("as", "product"));
+
+        Document unwindProduct = new Document("$unwind",
+                new Document("path", "$product")
+                        .append("preserveNullAndEmptyArrays", false));
+
+        Document normaliseEnv = new Document("$addFields",
+                new Document("normalisedEnv",
+                        new Document("$switch", new Document()
+                                .append("branches", List.of(
+                                        new Document("case",
+                                                new Document("$eq", List.of(
+                                                        "$product.environment", "OUTDOOR")))
+                                                .append("then", "OUTDOOR")))
+                                .append("default", "INDOOR"))));
+
+        Document groupByEnv = new Document("$group",
+                new Document("_id", "$normalisedEnv")
+                        .append("revenue",
+                                new Document("$sum",
+                                        new Document("$multiply", List.of(
+                                                new Document("$ifNull", List.of("$items.unitPrice", 0)),
+                                                new Document("$ifNull", List.of("$items.quantity", 0))))))
+                        .append("orderCount", new Document("$sum", 1)));
+
+        Document project = new Document("$project",
+                new Document("environment", "$_id")
+                        .append("revenue", 1)
+                        .append("orderCount", 1)
+                        .append("_id", 0));
+
+        List<Document> pipeline = List.of(
+                unwindItems, addProductIdStr, lookupProduct,
+                unwindProduct, normaliseEnv, groupByEnv, project
+        );
+
+        List<Document> rows = new ArrayList<>();
+        mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
+        return ResponseEntity.ok(ApiResponse.success(rows));
+    }
 }
