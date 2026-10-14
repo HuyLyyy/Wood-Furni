@@ -125,11 +125,9 @@ public class ReportingController {
     // ============================================================
     @GetMapping("/_debug/revenue-by-environment-verify")
     public ResponseEntity<ApiResponse<List<org.bson.Document>>> debugRevenueByEnvironment() {
-        ZoneId ict = ZoneId.of("Asia/Ho_Chi_Minh");
-        Instant start = LocalDate.now(ict).atStartOfDay(ict).toInstant();
-        Instant end = start.plus(1, ChronoUnit.DAYS);
+        // Same simplified pipeline as ReportingService.getEnvironmentRevenue():
+        // simple localField/foreignField $lookup (no $expr, no $toObjectId).
 
-        // Same pipeline as ReportingService.getEnvironmentRevenue()
         org.bson.Document orderMatch = new org.bson.Document("$match",
                 new org.bson.Document("$and", java.util.List.of(
                         new org.bson.Document("status",
@@ -145,37 +143,27 @@ public class ReportingController {
                 new org.bson.Document("productIdStr",
                         new org.bson.Document("$toString", "$items.productId")));
 
-        // Guard: only call $toObjectId on valid 24-char hex strings.
-        org.bson.Document isHex24 = new org.bson.Document("$regexMatch",
-                new org.bson.Document("input", "$productIdStr")
-                        .append("regex", "^[0-9a-fA-F]{24}$"));
-        org.bson.Document castedId = new org.bson.Document("$cond", java.util.List.of(
-                isHex24,
-                new org.bson.Document("$toObjectId", "$productIdStr"),
-                null));
+        // Simple $lookup — MongoDB 4.4+ handles string↔ObjectId coercion.
         org.bson.Document lookupProduct = new org.bson.Document("$lookup",
                 new org.bson.Document("from", "products")
-                        .append("let", new org.bson.Document("pid", "$productIdStr"))
-                        .append("pipeline", java.util.List.of(
-                                new org.bson.Document("$match",
-                                        new org.bson.Document("$expr",
-                                                new org.bson.Document("$eq", java.util.List.of(
-                                                        "$_id",
-                                                        castedId))))))
+                        .append("localField", "productIdStr")
+                        .append("foreignField", "_id")
                         .append("as", "product"));
 
         org.bson.Document unwindProduct = new org.bson.Document("$unwind",
                 new org.bson.Document("path", "$product")
                         .append("preserveNullAndEmptyArrays", false));
 
+        // BOTH and null → INDOOR; OUTDOOR stays OUTDOOR.
         org.bson.Document normaliseEnv = new org.bson.Document("$addFields",
                 new org.bson.Document("normalisedEnv",
-                        new org.bson.Document("$cond", java.util.List.of(
-                                new org.bson.Document("$eq",
-                                        java.util.List.of("$product.environment", "BOTH")),
-                                "INDOOR",
-                                new org.bson.Document("$ifNull",
-                                        java.util.List.of("$product.environment", "INDOOR"))))));
+                        new org.bson.Document("$switch", new org.bson.Document()
+                                .append("branches", java.util.List.of(
+                                        new org.bson.Document("case",
+                                                new org.bson.Document("$eq", java.util.List.of(
+                                                        "$product.environment", "OUTDOOR")))
+                                                .append("then", "OUTDOOR")))
+                                .append("default", "INDOOR"))));
 
         org.bson.Document matchKnownEnv = new org.bson.Document("$match",
                 new org.bson.Document("normalisedEnv",

@@ -721,10 +721,25 @@ public class ReportingService {
         // Same "which orders count" rule as getTopProducts — including COD,
         // excluding CANCELLED/RETURNED/REFUNDED.
         //
-        // NOTE: built as raw $match Documents (not Criteria) and run via
-        // getCollection().aggregate() so we don't have to fight Spring Data
-        // MongoDB's stage-builder API. This matches the pattern used by the
-        // /_debug/* endpoints in ReportingController, which run reliably.
+        // NOTE: built as raw Documents and run via getCollection().aggregate()
+        // (same pattern as the working _debug/* endpoints in ReportingController).
+        //
+        // Pipeline overview:
+        //   $match        → exclude cancelled / refunded orders
+        //   $unwind       → flatten Order.items so each item is a doc
+        //   $addFields    → ensure productId is a string for the $lookup
+        //   $lookup       → join products on productId (MongoDB 4.4+ auto-
+        //                    converts string↔ObjectId when matching _id)
+        //   $unwind       → explode product array; skip orders if product gone
+        //   $match        → keep only rows with known environment
+        //   $group        → by normalised environment, sum unitPrice*qty
+        //   $project      → reshape to {environment, revenue, orderCount}
+        //
+        // KEY FIX: uses simple localField/foreignField $lookup (no $expr,
+        // no $toObjectId, no $regexMatch, no $cond) — MongoDB resolves
+        // string-vs-ObjectId type mismatch automatically.
+
+        // Exclude CANCELLED/RETURNED/PENDING_CANCEL and REFUNDED.
         org.bson.Document orderMatch = new org.bson.Document("$match",
                 new org.bson.Document("$and", java.util.List.of(
                         new org.bson.Document("status",
@@ -734,63 +749,44 @@ public class ReportingService {
                                 new org.bson.Document("$ne", "REFUNDED"))
                 )));
 
+        // Flatten items so each order yields N rows (one per line-item).
         org.bson.Document unwindItems = new org.bson.Document("$unwind", "$items");
 
-        // Normalise productId to string so the $lookup below matches both
-        // string-typed and ObjectId-typed productId values.
+        // Ensure productId is a string so it can be matched against
+        // products._id (stored as string in some orders, ObjectId in others).
         org.bson.Document addProductIdStr = new org.bson.Document("$addFields",
                 new org.bson.Document("productIdStr",
                         new org.bson.Document("$toString", "$items.productId")));
 
-        // Join products. Use $toObjectId in $expr to compare string localField
-        // with ObjectId foreignField (same pattern as getTopProducts).
-        //
-        // NB: $toObjectId throws if the input isn't a valid 24-char hex
-        // string (legacy rows may have UUIDs or nulls). We use $cond +
-        // $regexMatch to gate the cast so the pipeline never throws on
-        // bad data — those rows simply yield no product match.
-        org.bson.Document isHex24 = new org.bson.Document("$regexMatch",
-                new org.bson.Document("input", "$productIdStr")
-                        .append("regex", "^[0-9a-fA-F]{24}$"));
-        org.bson.Document castedId = new org.bson.Document("$cond", java.util.List.of(
-                isHex24,
-                new org.bson.Document("$toObjectId", "$productIdStr"),
-                null));
+        // Simple $lookup — no $expr, no $toObjectId. MongoDB 4.4+ handles
+        // the string-vs-ObjectId type coercion automatically.
         org.bson.Document lookupProduct = new org.bson.Document("$lookup",
                 new org.bson.Document("from", COL_PRODUCTS)
-                        .append("let", new org.bson.Document("pid", "$productIdStr"))
-                        .append("pipeline", java.util.List.of(
-                                new org.bson.Document("$match",
-                                        new org.bson.Document("$expr",
-                                                new org.bson.Document("$eq", java.util.List.of(
-                                                        "$_id",
-                                                        castedId))))))
+                        .append("localField", "productIdStr")
+                        .append("foreignField", "_id")
                         .append("as", "product"));
 
-        // preserveNullAndEmptyArrays=false so orders whose product was
-        // deleted are dropped (they have no environment to attribute to).
+        // Drop rows where the product no longer exists (deleted after order).
         org.bson.Document unwindProduct = new org.bson.Document("$unwind",
                 new org.bson.Document("path", "$product")
                         .append("preserveNullAndEmptyArrays", false));
 
-        // BOTH → INDOOR. Use $ifNull so missing/unknown environments end up
-        // as INDOOR (defensive — production data may have nulls in older rows).
+        // Keep only known environments. BOTH → INDOOR. Null → INDOOR.
         org.bson.Document normaliseEnv = new org.bson.Document("$addFields",
                 new org.bson.Document("normalisedEnv",
-                        new org.bson.Document("$cond", java.util.List.of(
-                                new org.bson.Document("$eq",
-                                        java.util.List.of("$product.environment", "BOTH")),
-                                "INDOOR",
-                                new org.bson.Document("$ifNull",
-                                        java.util.List.of("$product.environment", "INDOOR"))))));
+                        new org.bson.Document("$switch", new org.bson.Document()
+                                .append("branches", java.util.List.of(
+                                        new org.bson.Document("case",
+                                                new org.bson.Document("$eq", java.util.List.of(
+                                                        "$product.environment", "OUTDOOR")))
+                                                .append("then", "OUTDOOR")))
+                                .append("default", "INDOOR"))));
 
-        // Keep only INDOOR / OUTDOOR rows (drops any orphan/null environments).
         org.bson.Document matchKnownEnv = new org.bson.Document("$match",
                 new org.bson.Document("normalisedEnv",
                         new org.bson.Document("$in", java.util.List.of("INDOOR", "OUTDOOR"))));
 
-        // Guard against null unitPrice on legacy order items — coerce to
-        // decimal with $ifNull so $multiply never sees null.
+        // Sum unitPrice * quantity per environment. Guard nulls with $ifNull.
         org.bson.Document groupByEnv = new org.bson.Document("$group",
                 new org.bson.Document("_id", "$normalisedEnv")
                         .append("revenue",
