@@ -134,13 +134,15 @@ public class DebugController {
         List<Document> rows = new ArrayList<>();
         try {
             mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
-        } catch (org.springframework.dao.DataAccessException ex) {
+        } catch (Throwable ex) {
             List<Document> errorList = new ArrayList<>();
             Throwable cause = ex.getCause();
             String msg = (cause != null ? cause.getMessage() : ex.getMessage());
             errorList.add(new Document("error", msg));
             errorList.add(new Document("errorClass", cause != null ? cause.getClass().getName() : ex.getClass().getName()));
             errorList.add(new Document("pipeline", pipeline.toString()));
+            // Also include the throwable's own message (sometimes only on the wrapper)
+            errorList.add(new Document("outerError", ex.getMessage()));
             return ResponseEntity.ok(ApiResponse.success(errorList));
         }
         return ResponseEntity.ok(ApiResponse.success(rows));
