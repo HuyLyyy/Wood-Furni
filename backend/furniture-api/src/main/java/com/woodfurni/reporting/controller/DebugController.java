@@ -206,7 +206,72 @@ public class DebugController {
         );
 
         List<Document> rows = new ArrayList<>();
-        mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
+        try {
+            mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
+        } catch (org.springframework.dao.DataAccessException ex) {
+            List<Document> errorList = new ArrayList<>();
+            Throwable cause = ex.getCause();
+            errorList.add(new Document("error", cause != null ? cause.getMessage() : ex.getMessage()));
+            return ResponseEntity.ok(ApiResponse.success(errorList));
+        }
         return ResponseEntity.ok(ApiResponse.success(rows));
+    }
+
+    /**
+     * Diagnostic: return all orders with their productId values cast to string,
+     * plus the actual types so we can see if productId is already ObjectId or string.
+     */
+    @GetMapping("/revenue-lookup-debug")
+    public ResponseEntity<ApiResponse<List<Document>>> debugRevenueLookup() {
+        // Step 1: just $unwind + $addFields to see what productId looks like
+        Document unwindItems = new Document("$unwind", "$items");
+
+        Document addProductIdStr = new Document("$addFields",
+                new Document("productIdStr",
+                        new Document("$toString", "$items.productId")));
+
+        Document addOriginalType = new Document("$addFields",
+                new Document("productIdOriginal",
+                        new Document("$type", "$items.productId")));
+
+        Document project = new Document("$project",
+                new Document("orderNumber", 1)
+                        .append("productIdStr", "$productIdStr")
+                        .append("productIdType", "$productIdOriginal")
+                        .append("productIdRaw", "$items.productId"));
+
+        Document limit = new Document("$limit", 5);
+
+        List<Document> pipeline = List.of(unwindItems, addProductIdStr, addOriginalType, project, limit);
+
+        List<Document> rows = new ArrayList<>();
+        mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
+
+        // Step 2: try direct $lookup with localField/foreignField
+        List<Document> lookupRows = new ArrayList<>();
+        try {
+            Document unwindItems2 = new Document("$unwind", "$items");
+            Document addProductIdStr2 = new Document("$addFields",
+                    new Document("productIdStr",
+                            new Document("$toString", "$items.productId")));
+            Document lookup = new Document("$lookup",
+                    new Document("from", "products")
+                            .append("localField", "productIdStr")
+                            .append("foreignField", "_id")
+                            .append("as", "product"));
+            Document unwindProduct = new Document("$unwind",
+                    new Document("path", "$product")
+                            .append("preserveNullAndEmptyArrays", false));
+            Document limit2 = new Document("$limit", 3);
+            List<Document> pipeline2 = List.of(unwindItems2, addProductIdStr2, lookup, unwindProduct, limit2);
+            mongoTemplate.getCollection("orders").aggregate(pipeline2).into(lookupRows);
+        } catch (Exception ex) {
+            lookupRows = List.of(new Document("lookupError", ex.getMessage()));
+        }
+
+        return ResponseEntity.ok(ApiResponse.success(List.of(
+                new Document("step1_productIdTypes", rows),
+                new Document("step2_lookupResult", lookupRows)
+        )));
     }
 }
