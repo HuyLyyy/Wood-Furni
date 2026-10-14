@@ -119,6 +119,97 @@ public class ReportingController {
     }
 
     // ============================================================
+    // DEBUG: run the revenue-by-environment pipeline end-to-end and
+    // return raw aggregation rows so we can see exactly which orders
+    // contributed and which stage caused a MongoCommandException.
+    // ============================================================
+    @GetMapping("/_debug/revenue-by-environment-verify")
+    public ResponseEntity<ApiResponse<List<org.bson.Document>>> debugRevenueByEnvironment() {
+        ZoneId ict = ZoneId.of("Asia/Ho_Chi_Minh");
+        Instant start = LocalDate.now(ict).atStartOfDay(ict).toInstant();
+        Instant end = start.plus(1, ChronoUnit.DAYS);
+
+        // Same pipeline as ReportingService.getEnvironmentRevenue()
+        org.bson.Document orderMatch = new org.bson.Document("$match",
+                new org.bson.Document("$and", java.util.List.of(
+                        new org.bson.Document("status",
+                                new org.bson.Document("$nin",
+                                        java.util.List.of("CANCELLED", "RETURNED", "PENDING_CANCEL"))),
+                        new org.bson.Document("paymentStatus",
+                                new org.bson.Document("$ne", "REFUNDED"))
+                )));
+
+        org.bson.Document unwindItems = new org.bson.Document("$unwind", "$items");
+
+        org.bson.Document addProductIdStr = new org.bson.Document("$addFields",
+                new org.bson.Document("productIdStr",
+                        new org.bson.Document("$toString", "$items.productId")));
+
+        // Guard: only call $toObjectId on valid 24-char hex strings.
+        org.bson.Document isHex24 = new org.bson.Document("$regexMatch",
+                new org.bson.Document("input", "$productIdStr")
+                        .append("regex", "^[0-9a-fA-F]{24}$"));
+        org.bson.Document castedId = new org.bson.Document("$cond", java.util.List.of(
+                isHex24,
+                new org.bson.Document("$toObjectId", "$productIdStr"),
+                null));
+        org.bson.Document lookupProduct = new org.bson.Document("$lookup",
+                new org.bson.Document("from", "products")
+                        .append("let", new org.bson.Document("pid", "$productIdStr"))
+                        .append("pipeline", java.util.List.of(
+                                new org.bson.Document("$match",
+                                        new org.bson.Document("$expr",
+                                                new org.bson.Document("$eq", java.util.List.of(
+                                                        "$_id",
+                                                        castedId))))))
+                        .append("as", "product"));
+
+        org.bson.Document unwindProduct = new org.bson.Document("$unwind",
+                new org.bson.Document("path", "$product")
+                        .append("preserveNullAndEmptyArrays", false));
+
+        org.bson.Document normaliseEnv = new org.bson.Document("$addFields",
+                new org.bson.Document("normalisedEnv",
+                        new org.bson.Document("$cond", java.util.List.of(
+                                new org.bson.Document("$eq",
+                                        java.util.List.of("$product.environment", "BOTH")),
+                                "INDOOR",
+                                new org.bson.Document("$ifNull",
+                                        java.util.List.of("$product.environment", "INDOOR"))))));
+
+        org.bson.Document matchKnownEnv = new org.bson.Document("$match",
+                new org.bson.Document("normalisedEnv",
+                        new org.bson.Document("$in", java.util.List.of("INDOOR", "OUTDOOR"))));
+
+        org.bson.Document groupByEnv = new org.bson.Document("$group",
+                new org.bson.Document("_id", "$normalisedEnv")
+                        .append("revenue",
+                                new org.bson.Document("$sum",
+                                        new org.bson.Document("$multiply", java.util.List.of(
+                                                new org.bson.Document("$ifNull",
+                                                        java.util.List.of("$items.unitPrice", 0)),
+                                                new org.bson.Document("$ifNull",
+                                                        java.util.List.of("$items.quantity", 0))))))
+                        .append("orderCount",
+                                new org.bson.Document("$sum", 1)));
+
+        org.bson.Document project = new org.bson.Document("$project",
+                new org.bson.Document("environment", "$_id")
+                        .append("revenue", 1)
+                        .append("orderCount", 1)
+                        .append("_id", 0));
+
+        java.util.List<org.bson.Document> pipeline = java.util.Arrays.asList(
+                orderMatch, unwindItems, addProductIdStr, lookupProduct,
+                unwindProduct, normaliseEnv, matchKnownEnv, groupByEnv, project
+        );
+
+        List<org.bson.Document> rows = new ArrayList<>();
+        mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
+        return ResponseEntity.ok(ApiResponse.success(rows));
+    }
+
+    // ============================================================
     // DEBUG: dump orders in ICT today so we can inspect what the
     // aggregation actually sees. Temporary — remove after fix is verified.
     // ============================================================

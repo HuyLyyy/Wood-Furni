@@ -744,6 +744,18 @@ public class ReportingService {
 
         // Join products. Use $toObjectId in $expr to compare string localField
         // with ObjectId foreignField (same pattern as getTopProducts).
+        //
+        // NB: $toObjectId throws if the input isn't a valid 24-char hex
+        // string (legacy rows may have UUIDs or nulls). We use $cond +
+        // $regexMatch to gate the cast so the pipeline never throws on
+        // bad data — those rows simply yield no product match.
+        org.bson.Document isHex24 = new org.bson.Document("$regexMatch",
+                new org.bson.Document("input", "$productIdStr")
+                        .append("regex", "^[0-9a-fA-F]{24}$"));
+        org.bson.Document castedId = new org.bson.Document("$cond", java.util.List.of(
+                isHex24,
+                new org.bson.Document("$toObjectId", "$productIdStr"),
+                null));
         org.bson.Document lookupProduct = new org.bson.Document("$lookup",
                 new org.bson.Document("from", COL_PRODUCTS)
                         .append("let", new org.bson.Document("pid", "$productIdStr"))
@@ -752,7 +764,7 @@ public class ReportingService {
                                         new org.bson.Document("$expr",
                                                 new org.bson.Document("$eq", java.util.List.of(
                                                         "$_id",
-                                                        new org.bson.Document("$toObjectId", "$$pid")))))))
+                                                        castedId))))))
                         .append("as", "product"));
 
         // preserveNullAndEmptyArrays=false so orders whose product was
