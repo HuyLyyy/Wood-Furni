@@ -89,6 +89,33 @@
 .stat-card__value { margin: 4px 0 0; font-size: 22px; font-weight: 700; color: var(--color-text); }
 .stat-card__value.is-loading { opacity: 0.4; }
 
+/* Clickable variant — used by "Sản phẩm sắp hết hàng" card to deep-link
+   into the Low Stock list on the inventory page. */
+.stat-card--clickable {
+    cursor: pointer;
+    position: relative;
+    transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+}
+.stat-card--clickable:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+    border-color: var(--color-primary);
+}
+.stat-card--clickable:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+}
+.stat-card__cta {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--color-primary);
+    font-weight: 600;
+}
+.stat-card--clickable:hover .stat-card__cta {
+    text-decoration: underline;
+}
+
 /* ===== Charts ===== */
 .dashboard__charts {
     display: grid;

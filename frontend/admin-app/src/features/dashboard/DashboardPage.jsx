@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip,
     CartesianGrid, BarChart, Bar, PieChart, Pie, Cell, Legend,
@@ -34,6 +35,7 @@ export default function DashboardPage() {
     usePageTitle('Dashboard');
 
     const { isAuthenticated } = useAuth();
+    const navigate = useNavigate();
     const {
         summary, revenue, byStatus, topProducts,
         revenuePeriod, loading, error, refresh, setRevenuePeriod,
@@ -132,6 +134,10 @@ export default function DashboardPage() {
                     value={summary ? formatNumber(summary.lowStockCount) : '—'}
                     tone="warning"
                     loading={loading}
+                    // Click → jump to /inventory?tab=low-stock so the admin
+                    // lands directly on the Low Stock list.
+                    onClick={() => navigate('/inventory?tab=low-stock')}
+                    title="Xem danh sách sản phẩm sắp hết hàng"
                 />
             </section>
 
@@ -345,13 +351,40 @@ export default function DashboardPage() {
 // Sub-components
 // =============================================================
 
-function StatCard({ icon, label, value, tone, loading }) {
+function StatCard({ icon, label, value, tone, loading, onClick, title }) {
+    const interactive = typeof onClick === 'function';
+    const className = [
+        'stat-card',
+        `stat-card--${tone}`,
+        interactive ? 'stat-card--clickable' : '',
+    ].filter(Boolean).join(' ');
+
+    const handleKeyDown = (e) => {
+        if (!interactive) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(e);
+        }
+    };
+
     return (
-        <div className={`stat-card stat-card--${tone}`}>
+        <div
+            className={className}
+            onClick={onClick}
+            onKeyDown={handleKeyDown}
+            role={interactive ? 'button' : undefined}
+            tabIndex={interactive ? 0 : undefined}
+            title={title}
+            aria-label={interactive ? title || label : undefined}
+            style={interactive ? { cursor: 'pointer' } : undefined}
+        >
             <div className="stat-card__icon">{icon}</div>
             <div className="stat-card__body">
                 <p className="stat-card__label">{label}</p>
                 <p className={`stat-card__value ${loading ? 'is-loading' : ''}`}>{value}</p>
+                {interactive && (
+                    <span className="stat-card__cta" aria-hidden="true">Xem chi tiết →</span>
+                )}
             </div>
         </div>
     );

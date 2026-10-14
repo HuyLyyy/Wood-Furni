@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import usePageTitle from '../../hooks/usePageTitle.js';
 import useInventory from '../../hooks/useInventory.js';
@@ -31,8 +32,23 @@ export default function InventoryPage() {
     const role = user?.role;
     const canAdjust = can(role, 'inventory:adjust');
 
-    const [tab, setTab] = useState('all'); // 'all' | 'low-stock'
+    const [searchParams, setSearchParams] = useSearchParams();
+
+    // Initial tab is read from ?tab=query so deep-links (e.g. from the
+    // dashboard's "Sản phẩm sắp hết hàng" KPI card) can land directly
+    // on the Low Stock tab.
+    const initialTab = searchParams.get('tab') === 'low-stock' ? 'low-stock' : 'all';
+    const [tab, setTab] = useState(initialTab); // 'all' | 'low-stock'
     const lowStock = tab === 'low-stock';
+
+    // Keep URL in sync so reload / back-button preserves the active tab
+    // and any external link can re-target it (?tab=low-stock).
+    useEffect(() => {
+        const urlTab = lowStock ? 'low-stock' : 'all';
+        if (searchParams.get('tab') !== urlTab) {
+            setSearchParams(urlTab === 'all' ? {} : { tab: urlTab }, { replace: true });
+        }
+    }, [lowStock, searchParams, setSearchParams]);
 
     const { items, pagination, loading, error, loadPage, refresh } = useInventory({ pageSize: 20, lowStock });
 

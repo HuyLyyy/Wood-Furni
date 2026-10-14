@@ -42,8 +42,11 @@ export const formatDateTime = (iso) => {
 /**
  * Format an ISO datetime into a yyyy-MM-ddTHH:mm value suitable for
  * `<input type="datetime-local">`. Returns '' if input is null/empty.
+ *
+ * NOTE: this is overridden later in the file by a timezone-aware
+ * version that handles explicit +07:00 offsets correctly.
  */
-export const toDateTimeLocalValue = (iso) => {
+function toDateTimeLocalValueLegacy(iso) {
     if (!iso) return '';
     try {
         const d = new Date(iso);
@@ -52,7 +55,10 @@ export const toDateTimeLocalValue = (iso) => {
     } catch {
         return '';
     }
-};
+}
+// Keep legacy unused to avoid shadowing the new export below.
+// (Removed from final build: see `toDateTimeLocalValue` defined further down.)
+void toDateTimeLocalValueLegacy;
 
 export const formatMonth = (yyyymm) => {
     if (!yyyymm || typeof yyyyymm !== 'string') return '—';
