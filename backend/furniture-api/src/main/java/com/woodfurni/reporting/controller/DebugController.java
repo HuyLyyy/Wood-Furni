@@ -137,7 +137,10 @@ public class DebugController {
         } catch (org.springframework.dao.DataAccessException ex) {
             List<Document> errorList = new ArrayList<>();
             Throwable cause = ex.getCause();
-            errorList.add(new Document("error", cause != null ? cause.getMessage() : ex.getMessage()));
+            String msg = (cause != null ? cause.getMessage() : ex.getMessage());
+            errorList.add(new Document("error", msg));
+            errorList.add(new Document("errorClass", cause != null ? cause.getClass().getName() : ex.getClass().getName()));
+            errorList.add(new Document("pipeline", pipeline.toString()));
             return ResponseEntity.ok(ApiResponse.success(errorList));
         }
         return ResponseEntity.ok(ApiResponse.success(rows));
