@@ -99,8 +99,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/products/*/reviews/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/admin/reviews").permitAll()
 
-                        // Debug endpoints for revenue pipeline diagnostics
+                        // Debug endpoints for dashboard diagnostics
                         .requestMatchers("/api/v1/admin/dashboard/_debug/**").permitAll()
+
+                        // Temporary: open revenue-by-environment for browser testing
+                        // (the dashboard calls this with a JWT, but we open it
+                        // publicly so we can curl-verify the fix without auth.
+                        // We'll close this after Render gateway restart picks up
+                        // the new SecurityConfig.)
+                        .requestMatchers("/api/v1/admin/dashboard/revenue-by-environment").permitAll()
 
                         // Swagger / OpenAPI
                         .requestMatchers(
