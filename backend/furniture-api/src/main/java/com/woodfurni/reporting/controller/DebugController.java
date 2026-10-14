@@ -299,4 +299,19 @@ public class DebugController {
                 new Document("step2_lookupResult", lookupRows)
         )));
     }
+
+    /**
+     * Diagnostic: return a few products so we can see what their _id looks
+     * like (String? ObjectId?) and whether _id == productIdStr from orders.
+     */
+    @GetMapping("/products-sample")
+    public ResponseEntity<ApiResponse<List<Document>>> debugProductsSample() {
+        List<Document> rows = new ArrayList<>();
+        mongoTemplate.getCollection("products")
+                .find(new Document())
+                .projection(new Document("_id", 1).append("name", 1).append("environment", 1))
+                .limit(5)
+                .into(rows);
+        return ResponseEntity.ok(ApiResponse.success(rows));
+    }
 }
