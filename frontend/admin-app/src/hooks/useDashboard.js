@@ -5,15 +5,20 @@ import { reportsApi } from '../services/apiReports.js';
  * useDashboard — loads all dashboard panels in parallel.
  *
  * Returns:
- *   summary        { revenueToday, ordersToday, newCustomersToday, lowStockCount } or null
- *   revenue        [{ month | date, revenue }, ...]
- *                  - When `revenuePeriod` is null: 12 months (month buckets)
- *                  - When `revenuePeriod` is {year, month}: that month (daily buckets)
- *   byStatus       [{ status, count }, ...]
- *   topProducts    [{ productId, productName, totalQuantitySold }, ...]
- *   loading        true during the initial fetch
- *   error          string | null
- *   refresh()      manual re-fetch (uses current filters)
+ *   summary              { revenueToday, ordersToday, newCustomersToday, lowStockCount } or null
+ *   revenue              [{ month | date, revenue }, ...]
+ *                        - When `revenuePeriod` is null: 12 months (month buckets)
+ *                        - When `revenuePeriod` is {year, month}: that month (daily buckets)
+ *   byStatus             [{ status, count }, ...]
+ *   topProducts          [{ productId, productName, totalQuantitySold }, ...]
+ *   environmentRevenue   [{ environment, label, revenue, orderCount }, ...]
+ *                        Exactly two rows: INDOOR and OUTDOOR (BOTH products
+ *                        are counted as INDOOR by the backend). Zero-revenue
+ *                        buckets are still emitted so the pie chart can show
+ *                        both slices.
+ *   loading              true during the initial fetch
+ *   error                string | null
+ *   refresh()            manual re-fetch (uses current filters)
  *   setRevenuePeriod({year, month} | null)   switch chart between monthly/daily
  *
  * Revenue chart supports two modes:
@@ -26,6 +31,7 @@ export default function useDashboard() {
         revenue: [],
         byStatus: [],
         topProducts: [],
+        environmentRevenue: [],
         loading: true,
         error: null,
         revenuePeriod: null, // null = "last 12 months", else {year, month}
@@ -35,17 +41,19 @@ export default function useDashboard() {
         const currentPeriod = period !== undefined ? period : state.revenuePeriod;
         setState((prev) => ({ ...prev, loading: true, error: null }));
         try {
-            const [summary, revenue, byStatus, topProducts] = await Promise.all([
+            const [summary, revenue, byStatus, topProducts, environmentRevenue] = await Promise.all([
                 reportsApi.getSummary(),
                 reportsApi.getMonthlyRevenue(currentPeriod || undefined),
                 reportsApi.getOrdersByStatus(),
                 reportsApi.getTopProducts(10),
+                reportsApi.getRevenueByEnvironment(),
             ]);
             setState((prev) => ({
                 summary: summary || null,
                 revenue: revenue || [],
                 byStatus: byStatus || [],
                 topProducts: topProducts || [],
+                environmentRevenue: environmentRevenue || [],
                 loading: false,
                 error: null,
                 revenuePeriod: currentPeriod,

@@ -37,7 +37,7 @@ export default function DashboardPage() {
     const { isAuthenticated } = useAuth();
     const navigate = useNavigate();
     const {
-        summary, revenue, byStatus, topProducts,
+        summary, revenue, byStatus, topProducts, environmentRevenue,
         revenuePeriod, loading, error, refresh, setRevenuePeriod,
     } = useDashboard();
 
@@ -342,6 +342,58 @@ export default function DashboardPage() {
                         )}
                     </div>
                 </div>
+
+                {/* ── Environment (Indoor / Outdoor) Pie Chart ── */}
+                <div className="dashboard__chart-card">
+                    <header className="dashboard__chart-head">
+                        <h2>Nội thất trong nhà vs ngoài trời</h2>
+                        <span className="dashboard__chart-sub">Tỷ trọng doanh số</span>
+                    </header>
+                    <div className="dashboard__chart-body">
+                        {loading ? (
+                            <ChartSkeleton />
+                        ) : environmentRevenue.length === 0 ? (
+                            <ChartEmpty text="Chưa có dữ liệu sản phẩm" />
+                        ) : (
+                            <ResponsiveContainer width="100%" height={280}>
+                                <PieChart>
+                                    <Pie
+                                        data={environmentRevenue.map((r) => ({
+                                            name: r.label,
+                                            value: Number(r.revenue) || 0,
+                                        }))}
+                                        cx="50%" cy="50%"
+                                        outerRadius={90}
+                                        innerRadius={50}
+                                        paddingAngle={2}
+                                        dataKey="value"
+                                        nameKey="name"
+                                        label={({ name, percent }) =>
+                                            `${name}\n${(percent * 100).toFixed(1)}%`
+                                        }
+                                        labelLine={false}
+                                    >
+                                        {environmentRevenue.map((_, i) => (
+                                            <Cell
+                                                key={i}
+                                                fill={ENV_CHART_COLORS[i % ENV_CHART_COLORS.length]}
+                                            />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip
+                                        formatter={(v) => formatCurrency(v)}
+                                        contentStyle={{ borderRadius: 8, fontSize: 13 }}
+                                    />
+                                    <Legend
+                                        formatter={(value) => value}
+                                        iconSize={10}
+                                        wrapperStyle={{ fontSize: 12 }}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        )}
+                    </div>
+                </div>
             </section>
         </div>
     );
@@ -424,3 +476,11 @@ const STATUS_COLORS = {
     RETURNED:   '#6b7280',
 };
 const PIE_FALLBACK = ['#6b4f2a', '#c79a4d', '#2563eb', '#16a34a', '#dc2626', '#6366f1', '#0891b2'];
+
+/**
+ * Two-color palette for the "Indoor vs Outdoor" pie chart.
+ * Order matches the backend response: INDOOR first, OUTDOOR second.
+ *   - Indoor  → warm wood-brown (matches the brand primary)
+ *   - Outdoor → fresh teal (a complementary cool tone for outdoor furniture)
+ */
+const ENV_CHART_COLORS = ['#6b4f2a', '#0d9488'];

@@ -105,6 +105,20 @@ public class ReportingController {
     }
 
     // ============================================================
+    // 6. Revenue by environment (Indoor / Outdoor)
+    // ============================================================
+    @GetMapping("/revenue-by-environment")
+    @Operation(summary = "Revenue split by product environment (Indoor vs Outdoor)",
+               description = "Returns two buckets: INDOOR and OUTDOOR. " +
+                       "Products with environment=BOTH are bucketed as INDOOR. " +
+                       "Uses the same order filter as /top-products: " +
+                       "excludes CANCELLED/RETURNED/REFUNDED, includes COD.")
+    public ResponseEntity<ApiResponse<List<EnvironmentRevenueResponse>>> getRevenueByEnvironment() {
+        List<EnvironmentRevenueResponse> data = reportingService.getEnvironmentRevenue();
+        return ResponseEntity.ok(ApiResponse.success(data));
+    }
+
+    // ============================================================
     // DEBUG: dump orders in ICT today so we can inspect what the
     // aggregation actually sees. Temporary — remove after fix is verified.
     // ============================================================

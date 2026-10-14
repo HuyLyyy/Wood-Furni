@@ -3,12 +3,13 @@ import apiClient from './apiClient';
 /**
  * Reporting / Dashboard API.
  *
- *   GET /admin/dashboard/summary             → DashboardSummaryResponse
- *   GET /admin/dashboard/revenue             → MonthlyRevenueResponse[] (last 12 months)
- *      or with ?year=YYYY&month=MM           → DailyRevenueResponse[] (single month)
- *   GET /admin/dashboard/orders-by-status    → OrdersByStatusResponse[]
- *   GET /admin/dashboard/top-products        → TopProductResponse[]
- *   GET /admin/dashboard/category-breakdown  → CategoryBreakdownResponse[]
+ *   GET /admin/dashboard/summary                    → DashboardSummaryResponse
+ *   GET /admin/dashboard/revenue                    → MonthlyRevenueResponse[] (last 12 months)
+ *      or with ?year=YYYY&month=MM                  → DailyRevenueResponse[] (single month)
+ *   GET /admin/dashboard/orders-by-status           → OrdersByStatusResponse[]
+ *   GET /admin/dashboard/top-products               → TopProductResponse[]
+ *   GET /admin/dashboard/category-breakdown         → CategoryBreakdownResponse[]
+ *   GET /admin/dashboard/revenue-by-environment     → EnvironmentRevenueResponse[]
  *
  * Backend: @PreAuthorize("hasRole('ADMIN')") at controller level.
  * Non-ADMIN users will get 403 — we surface that as a normal error.
@@ -37,4 +38,17 @@ export const reportsApi = {
     getTopProducts: (limit = 10) =>
         apiClient.get('/admin/dashboard/top-products', { params: { limit } }).then(unwrap),
     getCategoryBreakdown: () => apiClient.get('/admin/dashboard/category-breakdown').then(unwrap),
+    /**
+     * Total revenue split by product environment (Indoor / Outdoor).
+     * Backend returns exactly two rows: INDOOR (includes BOTH) and OUTDOOR.
+     * If a bucket has zero revenue the backend still emits it with
+     * revenue=0 so the pie chart always has both slices.
+     *
+     * @returns {Promise<Array<{environment: 'INDOOR'|'OUTDOOR',
+     *                          label: string,
+     *                          revenue: number,
+     *                          orderCount: number}>>}
+     */
+    getRevenueByEnvironment: () =>
+        apiClient.get('/admin/dashboard/revenue-by-environment').then(unwrap),
 };

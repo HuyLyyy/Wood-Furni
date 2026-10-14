@@ -683,6 +683,145 @@ public class ReportingService {
     }
 
     // ============================================================
+    // REPORT 6: Revenue by product environment (Indoor / Outdoor)
+    // ============================================================
+    /**
+     * Aggregate revenue per product environment. Used by the dashboard's
+     * "Indoor vs Outdoor" pie chart.
+     *
+     * <p><b>Mapping rule</b> (per product spec Mục 3.3):
+     * <ul>
+     *   <li>{@code INDOOR} → "INDOOR" (nội thất trong nhà)</li>
+     *   <li>{@code OUTDOOR} → "OUTDOOR" (nội thất ngoài trời)</li>
+     *   <li>{@code BOTH} → bucketed as INDOOR (these products are
+     *       usable indoors, so they belong to the indoor slice).</li>
+     * </ul>
+     *
+     * <p><b>Which orders count?</b> Same logic as {@link #getTopProducts}:
+     * exclude CANCELLED / RETURNED / PENDING_CANCEL and REFUNDED, but
+     * include COD (paymentStatus=UNPAID with status=CONFIRMED) so the chart
+     * shows the customer's actual buying intent, not just paid revenue.
+     *
+     * <p><b>Pipeline</b>:
+     * <pre>
+     *   $match       → exclude cancelled / refunded orders
+     *   $unwind      → flatten Order.items
+     *   $addFields   → normalise productId to string, normalise environment
+     *                  (BOTH → INDOOR)
+     *   $lookup      → join products to read environment
+     *   $unwind      → product (preserve missing products)
+     *   $match       → keep only orders whose product is known and has an
+     *                  environment (so "BOTH" mapped to INDOOR is counted)
+     *   $group       → by normalised environment, sum unitPrice*quantity
+     *   $project     → reshape
+     *   $sort        → by revenue desc
+     * </pre>
+     */
+    public List<EnvironmentRevenueResponse> getEnvironmentRevenue() {
+        // Same "which orders count" rule as getTopProducts — including COD,
+        // excluding CANCELLED/RETURNED/REFUNDED.
+        org.springframework.data.mongodb.core.query.Criteria notCancelled =
+                new org.springframework.data.mongodb.core.query.Criteria()
+                        .and("status").nin("CANCELLED", "RETURNED", "PENDING_CANCEL");
+        org.springframework.data.mongodb.core.query.Criteria notRefunded =
+                new org.springframework.data.mongodb.core.query.Criteria()
+                        .and("paymentStatus").ne("REFUNDED");
+        org.springframework.data.mongodb.core.query.Criteria orderFilter =
+                new org.springframework.data.mongodb.core.query.Criteria()
+                        .andOperator(notCancelled, notRefunded);
+
+        // When BOTH, the admin wanted it to count toward INDOOR. The
+        // pipeline rewrites the product.environment using $cond so we can
+        // still $group by the normalised bucket in a single pass.
+        org.bson.Document rewriteEnv = new org.bson.Document("$addFields",
+                new org.bson.Document("normalisedEnv",
+                        new org.bson.Document("$cond", java.util.List.of(
+                                new org.bson.Document("$eq",
+                                        java.util.List.of("$product.environment", "BOTH")),
+                                "INDOOR",
+                                "$product.environment"))));
+
+        org.bson.Document matchKnownProduct = new org.bson.Document("$match",
+                new org.bson.Document("normalisedEnv",
+                        new org.bson.Document("$in", java.util.List.of("INDOOR", "OUTDOOR"))));
+
+        List<org.springframework.data.mongodb.core.aggregation.AggregationOperation> stages = new ArrayList<>();
+        stages.add(Aggregation.match(orderFilter));
+        stages.add(ctx -> new org.bson.Document("$unwind", "$items"));
+        stages.add(ctx -> new org.bson.Document("$addFields",
+                new org.bson.Document("productIdStr",
+                        new org.bson.Document("$toString", "$items.productId"))));
+        // Join products using string-vs-ObjectId $expr — same pattern as
+        // getTopProducts, so productId is found whether stored as String
+        // or as ObjectId in the order.
+        stages.add(ctx -> new org.bson.Document("$lookup",
+                new org.bson.Document("from", COL_PRODUCTS)
+                        .append("let", new org.bson.Document("pid", "$productIdStr"))
+                        .append("pipeline", java.util.List.of(
+                                new org.bson.Document("$match",
+                                        new org.bson.Document("$expr",
+                                                new org.bson.Document("$eq", java.util.List.of(
+                                                        "$_id",
+                                                        new org.bson.Document("$toObjectId", "$$pid")))))))
+                        .append("as", "product")));
+        stages.add(ctx -> new org.bson.Document("$unwind",
+                new org.bson.Document("path", "$product")
+                        .append("preserveNullAndEmptyArrays", false)));
+        stages.add(ctx -> rewriteEnv);
+        stages.add(ctx -> matchKnownProduct);
+        stages.add(ctx -> new org.bson.Document("$group",
+                new org.bson.Document("_id", "$normalisedEnv")
+                        .append("revenue",
+                                new org.bson.Document("$sum",
+                                        new org.bson.Document("$multiply",
+                                                java.util.List.of("$items.unitPrice", "$items.quantity"))))
+                        .append("orderCount",
+                                new org.bson.Document("$sum", 1))));
+        stages.add(ctx -> new org.bson.Document("$project",
+                new org.bson.Document("environment", "$_id")
+                        .append("revenue", 1)
+                        .append("orderCount", 1)
+                        .append("_id", 0)));
+        stages.add(ctx -> new org.bson.Document("$sort",
+                new org.bson.Document("revenue", -1)));
+
+        Aggregation pipeline = Aggregation.newAggregation(stages);
+
+        AggregationResults<org.bson.Document> results = mongoTemplate.aggregate(
+                pipeline, COL_ORDERS, org.bson.Document.class);
+
+        // Always emit BOTH buckets so the frontend never has to guess what
+        // zero-revenue environments mean. (A freshly-opened shop may have
+        // no Outdoor products yet — we still want the Outdoor slice in the
+        // pie so the admin knows the data is being read.)
+        Map<String, BigDecimal> revenueByEnv = new java.util.LinkedHashMap<>();
+        Map<String, Long> countByEnv = new java.util.LinkedHashMap<>();
+        for (org.bson.Document doc : results) {
+            String env = doc.getString("environment");
+            if (env == null) continue;
+            revenueByEnv.put(env, toBigDecimal(doc.get("revenue")));
+            Number c = (Number) doc.get("orderCount");
+            countByEnv.put(env, c == null ? 0L : c.longValue());
+        }
+
+        // Order: INDOOR first so the pie slice is at 12 o'clock.
+        List<EnvironmentRevenueResponse> out = new ArrayList<>();
+        out.add(EnvironmentRevenueResponse.builder()
+                .environment("INDOOR")
+                .label("Nội thất trong nhà")
+                .revenue(revenueByEnv.getOrDefault("INDOOR", BigDecimal.ZERO))
+                .orderCount(countByEnv.getOrDefault("INDOOR", 0L))
+                .build());
+        out.add(EnvironmentRevenueResponse.builder()
+                .environment("OUTDOOR")
+                .label("Nội thất ngoài trời")
+                .revenue(revenueByEnv.getOrDefault("OUTDOOR", BigDecimal.ZERO))
+                .orderCount(countByEnv.getOrDefault("OUTDOOR", 0L))
+                .build());
+        return out;
+    }
+
+    // ============================================================
     // Helpers
     // ============================================================
     private BigDecimal toBigDecimal(Object value) {
