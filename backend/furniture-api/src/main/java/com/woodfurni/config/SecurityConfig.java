@@ -99,8 +99,15 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/products/*/reviews/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/admin/reviews").permitAll()
 
-                        // Debug endpoints for dashboard diagnostics
+                        // Debug endpoints for dashboard diagnostics.
+                        // Match BOTH forms: with the /api/v1 prefix (gateway) and
+                        // without (direct backend). The /api/v1 prefix is the
+                        // public URL; DispatcherServlet maps it back to the
+                        // internal path, but Spring Security's requestMatcher
+                        // is applied BEFORE DispatcherServlet, so the matcher
+                        // sees the raw request URI with the prefix.
                         .requestMatchers("/api/v1/admin/dashboard/_debug/**").permitAll()
+                        .requestMatchers("/admin/dashboard/_debug/**").permitAll()
 
                         // Temporary: open revenue-by-environment for browser testing
                         // (the dashboard calls this with a JWT, but we open it
@@ -108,6 +115,7 @@ public class SecurityConfig {
                         // We'll close this after Render gateway restart picks up
                         // the new SecurityConfig.)
                         .requestMatchers("/api/v1/admin/dashboard/revenue-by-environment").permitAll()
+                        .requestMatchers("/admin/dashboard/revenue-by-environment").permitAll()
 
                         // Swagger / OpenAPI
                         .requestMatchers(
