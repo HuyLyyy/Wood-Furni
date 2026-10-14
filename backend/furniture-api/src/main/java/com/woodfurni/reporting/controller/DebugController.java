@@ -64,11 +64,23 @@ public class DebugController {
                 new Document("productIdStr",
                         new Document("$toString", "$items.productId")));
 
-        // Simple $lookup — MongoDB 4.4+ auto-converts string↔ObjectId on _id.
+        // Use $lookup with $expr + $or so we handle BOTH string and ObjectId
+        // productId values. The $or tries $toObjectId first; if that fails
+        // (because productId is a plain string), the fallback $eq to "$$pid"
+        // matches the string-typed product _id. This works for both shapes.
         Document lookupProduct = new Document("$lookup",
                 new Document("from", "products")
-                        .append("localField", "productIdStr")
-                        .append("foreignField", "_id")
+                        .append("let", new Document("pid", "$productIdStr"))
+                        .append("pipeline", List.of(
+                                new Document("$match", new Document("$expr",
+                                        new Document("$or", List.of(
+                                                new Document("$eq", List.of(
+                                                        "$_id",
+                                                        new Document("$toObjectId", "$$pid"))),
+                                                new Document("$eq", List.of(
+                                                        "$_id",
+                                                        "$$pid"))
+                                        ))))))
                         .append("as", "product"));
 
         // Drop rows where product no longer exists.
