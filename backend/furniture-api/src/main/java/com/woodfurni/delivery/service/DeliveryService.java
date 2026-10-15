@@ -911,7 +911,7 @@ public class DeliveryService {
      * DeliveryTrip + DeliveryTripOrder.
      *
      * Nhận biết 2 loại corruption:
-     *  1. Instant < 2020-01-01 → chắc chắn corrupted (thường gần epoch 0)
+     *  1. Instant < 2025-01-01 → chắc chắn corrupted (epoch 0 hoặc trước 2025)
      *  2. nextDeliveryDate lệch ±1 ngày so với dự kiến:
      *     - lastRescheduleAt có ở 1 ngày X
      *     - nextDeliveryDate đang ở X+1 ngày lệch 1 → bug date shift
@@ -919,23 +919,27 @@ public class DeliveryService {
      *     có thể ở bất kỳ ngày nào trong tương lai — chỉ fix loại 1.)
      */
     public int fixCorruptedNextDeliveryDates(String performedBy) {
-        Instant year2020 = Instant.parse("2020-01-01T00:00:00Z");
+        // Mở rộng threshold: < 2025-01-01 → corrupted
+        // (Bao gồm cả Instant bằng 0, gần 0, hoặc trước 2025.)
+        Instant year2025 = Instant.parse("2025-01-01T00:00:00Z");
         int fixed = 0;
         for (DeliveryTrip t : tripRepository.findAll()) {
             // Fix trip.nextDeliveryDate
-            if (t.getNextDeliveryDate() != null && t.getNextDeliveryDate().isBefore(year2020)) {
+            if (t.getNextDeliveryDate() != null && t.getNextDeliveryDate().isBefore(year2025)) {
+                Instant oldVal = t.getNextDeliveryDate();
                 Instant base = t.getLastRescheduleAt() != null
                         ? t.getLastRescheduleAt()
                         : (t.getCreatedAt() != null ? t.getCreatedAt() : Instant.now());
                 t.setNextDeliveryDate(base.plus(1, ChronoUnit.DAYS));
                 tripRepository.save(t);
                 fixed++;
-                log.warn("[DeliveryTrip] {} fixed corrupted nextDeliveryDate by {}",
-                        t.getTripNumber(), performedBy);
+                log.warn("[DeliveryTrip] {} fixed corrupted nextDeliveryDate: {} -> {}",
+                        t.getTripNumber(), oldVal, t.getNextDeliveryDate());
             }
             // Fix per-order
             for (DeliveryTripOrder link : tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId())) {
-                if (link.getNextDeliveryDate() != null && link.getNextDeliveryDate().isBefore(year2020)) {
+                if (link.getNextDeliveryDate() != null && link.getNextDeliveryDate().isBefore(year2025)) {
+                    Instant oldVal = link.getNextDeliveryDate();
                     Instant base = link.getDeliveredAt() != null
                             ? link.getDeliveredAt()
                             : (t.getLastRescheduleAt() != null
@@ -944,22 +948,72 @@ public class DeliveryService {
                     link.setNextDeliveryDate(base.plus(1, ChronoUnit.DAYS));
                     tripOrderRepository.save(link);
                     fixed++;
+                    log.warn("[DeliveryTripOrder] trip={} order={} fixed: {} -> {}",
+                            t.getTripNumber(), link.getOrderId(), oldVal, link.getNextDeliveryDate());
                 }
             }
         }
         // Fix order
         for (Order o : orderRepository.findAll()) {
-            if (o.getNextDeliveryDate() != null && o.getNextDeliveryDate().isBefore(year2020)) {
+            if (o.getNextDeliveryDate() != null && o.getNextDeliveryDate().isBefore(year2025)) {
+                Instant oldVal = o.getNextDeliveryDate();
                 Instant base = o.getCreatedAt() != null ? o.getCreatedAt() : Instant.now();
                 o.setNextDeliveryDate(base.plus(1, ChronoUnit.DAYS));
                 orderRepository.save(o);
                 fixed++;
-                log.warn("[Order] {} fixed corrupted nextDeliveryDate by {}",
-                        o.getOrderNumber(), performedBy);
+                log.warn("[Order] {} fixed corrupted nextDeliveryDate: {} -> {}",
+                        o.getOrderNumber(), oldVal, o.getNextDeliveryDate());
             }
         }
         log.info("[Fix] corrupted nextDeliveryDates fixed by {}: {} entries", performedBy, fixed);
         return fixed;
+    }
+
+    /**
+     * Audit (không sửa): trả về tất cả dòng nextDeliveryDate bị corrupted.
+     * Dùng để kiểm tra nhanh.
+     */
+    public java.util.Map<String, Object> auditCorruptedNextDeliveryDates() {
+        Instant year2025 = Instant.parse("2025-01-01T00:00:00Z");
+        java.util.List<java.util.Map<String, Object>> corruptedTrips = new java.util.ArrayList<>();
+        java.util.List<java.util.Map<String, Object>> corruptedLinks = new java.util.ArrayList<>();
+        java.util.List<java.util.Map<String, Object>> corruptedOrders = new java.util.ArrayList<>();
+
+        for (DeliveryTrip t : tripRepository.findAll()) {
+            if (t.getNextDeliveryDate() != null && t.getNextDeliveryDate().isBefore(year2025)) {
+                corruptedTrips.add(java.util.Map.of(
+                        "tripId", t.getId(),
+                        "tripNumber", t.getTripNumber(),
+                        "nextDeliveryDate", t.getNextDeliveryDate().toString(),
+                        "lastRescheduleAt", t.getLastRescheduleAt() == null ? "" : t.getLastRescheduleAt().toString()));
+            }
+            for (DeliveryTripOrder link : tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId())) {
+                if (link.getNextDeliveryDate() != null && link.getNextDeliveryDate().isBefore(year2025)) {
+                    corruptedLinks.add(java.util.Map.of(
+                            "tripNumber", t.getTripNumber(),
+                            "orderId", link.getOrderId(),
+                            "nextDeliveryDate", link.getNextDeliveryDate().toString()));
+                }
+            }
+        }
+        for (Order o : orderRepository.findAll()) {
+            if (o.getNextDeliveryDate() != null && o.getNextDeliveryDate().isBefore(year2025)) {
+                corruptedOrders.add(java.util.Map.of(
+                        "orderId", o.getId(),
+                        "orderNumber", o.getOrderNumber(),
+                        "nextDeliveryDate", o.getNextDeliveryDate().toString()));
+            }
+        }
+
+        java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("threshold", "nextDeliveryDate < 2025-01-01T00:00:00Z");
+        result.put("tripsCount", corruptedTrips.size());
+        result.put("tripLinksCount", corruptedLinks.size());
+        result.put("ordersCount", corruptedOrders.size());
+        result.put("trips", corruptedTrips);
+        result.put("tripLinks", corruptedLinks);
+        result.put("orders", corruptedOrders);
+        return result;
     }
 
     // ───────────────────────────────────────────────────────────────────────

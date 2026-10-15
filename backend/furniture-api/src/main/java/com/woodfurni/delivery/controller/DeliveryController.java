@@ -177,7 +177,7 @@ public class DeliveryController {
     }
 
     /**
-     * Sửa dữ liệu nextDeliveryDate bị corrupted (Instant < 2020 do bug
+     * Sửa dữ liệu nextDeliveryDate bị corrupted (Instant < 2025 do bug
      * timezone cũ). Chỉ Admin.
      */
     @PostMapping("/trips/fix-corrupted-dates")
@@ -189,6 +189,18 @@ public class DeliveryController {
         int fixed = deliveryService.fixCorruptedNextDeliveryDates(performedBy);
         return ResponseEntity.ok(ApiResponse.success(
                 "Đã sửa " + fixed + " dòng dữ liệu bị lỗi.", fixed));
+    }
+
+    /**
+     * Debug: trả về raw nextDeliveryDate của tất cả orders + trips đang có
+     * giá trị corrupted (< 2025). Dùng để kiểm tra nhanh không cần query DB.
+     */
+    @GetMapping("/trips/audit-corrupted-dates")
+    @PreAuthorize("hasAnyRole('ADMIN', 'WAREHOUSE', 'SALES')")
+    @Operation(summary = "Audit các dòng nextDeliveryDate bị corrupted")
+    public ResponseEntity<ApiResponse<Object>> auditCorruptedDates() {
+        return ResponseEntity.ok(ApiResponse.success("Audit result",
+                deliveryService.auditCorruptedNextDeliveryDates()));
     }
 
     // ───────────────────────────────────────────────────────────────────────

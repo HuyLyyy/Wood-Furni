@@ -33,14 +33,17 @@ public class DeliveryDataFixRunner implements CommandLineRunner {
     @Override
     public void run(String... args) {
         File flag = new File(FIXED_FLAG_FILE);
+        log.warn("[DeliveryDataFix] ============================================");
+        log.warn("[DeliveryDataFix] Flag file: {} (exists={})", FIXED_FLAG_FILE, flag.exists());
+        log.warn("[DeliveryDataFix] Timezone: {}", java.util.TimeZone.getDefault().getID());
+        log.warn("[DeliveryDataFix] ============================================");
+
         if (flag.exists()) {
             log.info("[DeliveryDataFix] Already ran — skipping. (Xóa {} để re-run)", FIXED_FLAG_FILE);
             return;
         }
 
-        log.warn("[DeliveryDataFix] ============================================");
         log.warn("[DeliveryDataFix] Running ONE-TIME delivery data migration");
-        log.warn("[DeliveryDataFix] ============================================");
 
         try {
             // 1. Fix trip statuses (trip COMPLETED sai → RESCHEDULED)
