@@ -89,10 +89,26 @@
     font-size: 12px;
     font-weight: 600;
 }
-.status--planning  { background: #e0f2fe; color: #0369a1; }
-.status--shipping  { background: #fef9c3; color: #854d0e; }
-.status--completed { background: #dcfce7; color: #15803d; }
-.status--cancelled { background: #fee2e2; color: #b91c1c; }
+.status--planning    { background: #e0f2fe; color: #0369a1; }
+.status--shipping    { background: #fef9c3; color: #854d0e; }
+.status--arrived     { background: #ede9fe; color: #6d28d9; }
+.status--rescheduled { background: #ffedd5; color: #c2410c; }
+.status--completed   { background: #dcfce7; color: #15803d; }
+.status--cancelled   { background: #fee2e2; color: #b91c1c; }
+
+/* Per-order state badges (trong TripDetailModal) */
+.order-state-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+}
+.order-state--pending     { background: #f1f5f9; color: #475569; }
+.order-state--delivered   { background: #dcfce7; color: #15803d; }
+.order-state--rescheduled { background: #ffedd5; color: #c2410c; }
+.order-state--failed      { background: #fee2e2; color: #b91c1c; }
+.order-state--unreachable { background: #fef9c3; color: #854d0e; }
 
 /* Row actions */
 .row-actions {
@@ -116,6 +132,10 @@
 .btn-row--danger  { background: #fff; color: #b91c1c; border-color: #fecaca; }
 .btn-row--danger:hover:not(:disabled) { background: #fee2e2; }
 .btn-row--success { background: #16a34a; color: #fff; border-color: #16a34a; }
+.btn-row--warning { background: #f59e0b; color: #fff; border-color: #f59e0b; }
+.btn-row--warning:hover:not(:disabled) { background: #d97706; }
+.btn-row--secondary { background: #fff; color: #475569; border-color: #cbd5e1; }
+.btn-row--secondary:hover:not(:disabled) { background: #f1f5f9; }
 
 /* Bulk action bar */
 .bulk-action-bar {
@@ -178,4 +198,110 @@
     margin-top: 16px;
     font-size: 13px;
     color: #475569;
+}
+
+/* ── TripDetailModal ────────────────────────────────────────────────── */
+
+.modal-card--wide {
+    max-width: 960px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+.modal-card--inner {
+    max-width: 520px;
+}
+.modal-overlay--inner {
+    z-index: 1100;
+    background: rgba(0, 0, 0, 0.55);
+}
+.modal-close-btn {
+    background: transparent;
+    border: none;
+    font-size: 24px;
+    line-height: 1;
+    color: #94a3b8;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 4px;
+}
+.modal-close-btn:hover {
+    background: #f1f5f9;
+    color: #1e293b;
+}
+.trip-detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+.trip-detail-header h3 {
+    margin: 0;
+    font-size: 20px;
+}
+.trip-detail-meta {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px 16px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #475569;
+    margin-bottom: 12px;
+}
+.trip-detail-counters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+.counter {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+}
+.counter--delivered   { background: #dcfce7; color: #15803d; }
+.counter--rescheduled { background: #ffedd5; color: #c2410c; }
+.counter--failed      { background: #fee2e2; color: #b91c1c; }
+.counter--pending     { background: #f1f5f9; color: #475569; }
+.trip-detail-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 8px 0 12px;
+}
+.trip-orders-wrap {
+    overflow-x: auto;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+.trip-orders-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+.trip-orders-table thead tr {
+    background: #f8fafc;
+}
+.trip-orders-table th {
+    padding: 8px 10px;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 2px solid #e2e8f0;
+    white-space: nowrap;
+}
+.trip-orders-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: top;
+}
+.trip-orders-table tbody tr:last-child td {
+    border-bottom: none;
+}
+.trip-orders-table tbody tr:hover {
+    background: #f8fafc;
 }

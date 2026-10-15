@@ -5,13 +5,16 @@ import { deliveryApi } from '../../services/apiDelivery.js';
 import { formatDateTime, formatNumber } from '../../utils/format.js';
 import { Button } from '../../components/index.js';
 import CreateTripModal from './CreateTripModal.jsx';
+import TripDetailModal from './TripDetailModal.jsx';
 import './DeliveryPage.css';
 
 const STATUS_LABELS = {
-    PLANNING:   { label: 'Lên kế hoạch', cls: 'status--planning' },
-    SHIPPING:   { label: 'Đang giao',   cls: 'status--shipping'  },
-    COMPLETED:  { label: 'Hoàn thành',  cls: 'status--completed' },
-    CANCELLED:  { label: 'Đã hủy',      cls: 'status--cancelled' },
+    PLANNING:    { label: 'Lên kế hoạch', cls: 'status--planning' },
+    SHIPPING:    { label: 'Đang giao',    cls: 'status--shipping'  },
+    ARRIVED:     { label: 'Đã đến nơi',   cls: 'status--arrived'   },
+    RESCHEDULED: { label: 'Hoãn giao',    cls: 'status--rescheduled' },
+    COMPLETED:   { label: 'Hoàn thành',   cls: 'status--completed' },
+    CANCELLED:   { label: 'Đã hủy',       cls: 'status--cancelled' },
 };
 
 function StatusBadge({ status }) {
@@ -32,6 +35,7 @@ export default function DeliveryPage() {
     const [bulkLoading, setBulkLoading] = useState(false);
     const [showCancelModal, setShowCancelModal] = useState(false);
     const [cancelReason, setCancelReason] = useState('');
+    const [detailTripId, setDetailTripId] = useState(null);
 
     const loadPage = useCallback(async (page) => {
         setLoading(true);
@@ -81,49 +85,57 @@ export default function DeliveryPage() {
             render: (r) => <strong>{r.tripNumber}</strong>,
         },
         {
-            key: '_actions', header: 'Hành động', width: 240,
+            key: '_actions', header: 'Hành động', width: 320,
             render: (r) => {
-                if (r.status === 'PLANNING') {
-                    return (
-                        <div className="row-actions">
+                const activeStatuses = ['SHIPPING', 'ARRIVED', 'RESCHEDULED'];
+                const isActive = activeStatuses.includes(r.status);
+                return (
+                    <div className="row-actions">
+                        {/* Luôn có nút xem chi tiết — áp dụng cho MỌI trạng thái */}
+                        <button
+                            type="button"
+                            className="btn-row btn-row--secondary"
+                            onClick={() => setDetailTripId(r.id)}
+                        >Chi tiết</button>
+
+                        {r.status === 'PLANNING' && (
+                            <>
+                                <button
+                                    type="button"
+                                    className="btn-row btn-row--primary"
+                                    disabled={bulkLoading}
+                                    onClick={async () => {
+                                        try {
+                                            await deliveryApi.startShipping(r.id);
+                                            toast.success(`Đã bắt đầu giao ${r.tripNumber}`);
+                                            loadPage(pagination.page);
+                                        } catch (e) {
+                                            toast.error(e?.message || 'Thất bại');
+                                        }
+                                    }}
+                                >Xác nhận giao</button>
+                                <button
+                                    type="button"
+                                    className="btn-row btn-row--danger"
+                                    disabled={bulkLoading}
+                                    onClick={async () => {
+                                        if (!window.confirm(`Hủy chuyến ${r.tripNumber}?`)) return;
+                                        try {
+                                            await deliveryApi.cancelTrip(r.id, '');
+                                            toast.success(`Đã hủy ${r.tripNumber}`);
+                                            loadPage(pagination.page);
+                                        } catch (e) {
+                                            toast.error(e?.message || 'Thất bại');
+                                        }
+                                    }}
+                                >Hủy chuyến</button>
+                            </>
+                        )}
+
+                        {isActive && (
                             <button
                                 type="button"
-                                className="btn-row btn-row--primary"
-                                disabled={bulkLoading}
-                                onClick={async () => {
-                                    try {
-                                        await deliveryApi.startShipping(r.id);
-                                        toast.success(`Đã bắt đầu giao ${r.tripNumber}`);
-                                        loadPage(pagination.page);
-                                    } catch (e) {
-                                        toast.error(e?.message || 'Thất bại');
-                                    }
-                                }}
-                            >Xác nhận giao</button>
-                            <button
-                                type="button"
-                                className="btn-row btn-row--danger"
-                                disabled={bulkLoading}
-                                onClick={async () => {
-                                    if (!window.confirm(`Hủy chuyến ${r.tripNumber}?`)) return;
-                                    try {
-                                        await deliveryApi.cancelTrip(r.id, '');
-                                        toast.success(`Đã hủy ${r.tripNumber}`);
-                                        loadPage(pagination.page);
-                                    } catch (e) {
-                                        toast.error(e?.message || 'Thất bại');
-                                    }
-                                }}
-                            >Hủy chuyến</button>
-                        </div>
-                    );
-                }
-                if (r.status === 'SHIPPING') {
-                    return (
-                        <div className="row-actions">
-                            <button
-                                type="button"
-                                className="btn-row btn-row--success"
+                                className="btn-row btn-row--warning"
                                 disabled={bulkLoading}
                                 onClick={async () => {
                                     if (!window.confirm(`Xác nhận hoàn thành chuyến ${r.tripNumber}?`)) return;
@@ -136,19 +148,23 @@ export default function DeliveryPage() {
                                     }
                                 }}
                             >Hoàn thành</button>
-                        </div>
-                    );
-                }
-                return <span className="text-muted">—</span>;
+                        )}
+                    </div>
+                );
             },
         },
         {
-            key: 'status', header: 'Trạng thái', width: 130,
-            render: (r) => <StatusBadge status={r.status} />,
-        },
-        {
-            key: 'status', header: 'Trạng thái', width: 130,
-            render: (r) => <StatusBadge status={r.status} />,
+            key: 'status', header: 'Trạng thái', width: 200,
+            render: (r) => (
+                <div>
+                    <StatusBadge status={r.status} />
+                    {r.rescheduleCount > 0 && (
+                        <div style={{ fontSize: 11, color: '#b45309', marginTop: 4 }}>
+                            ⚠ Hoãn {r.rescheduleCount} lần
+                        </div>
+                    )}
+                </div>
+            ),
         },
         {
             key: 'vehicleTypeName', header: 'Loại xe', width: 140,
@@ -176,7 +192,7 @@ export default function DeliveryPage() {
             key: 'createdAt', header: 'Ngày tạo', width: 140,
             render: (r) => formatDateTime(r.createdAt),
         },
-    ], [selectedIds, bulkLoading, pagination.page]);
+    ], [selectedIds, bulkLoading, pagination.page, loadPage, tab, search]);
 
     const handleSearch = (e) => {
         e.preventDefault();
@@ -257,7 +273,7 @@ export default function DeliveryPage() {
             </header>
 
             <div className="delivery-tabs">
-                {['all', 'PLANNING', 'SHIPPING', 'COMPLETED'].map((t) => (
+                {['all', 'PLANNING', 'SHIPPING', 'ARRIVED', 'RESCHEDULED', 'COMPLETED'].map((t) => (
                     <button
                         key={t}
                         type="button"
@@ -386,6 +402,14 @@ export default function DeliveryPage() {
                 <CreateTripModal
                     onClose={() => setShowCreate(false)}
                     onDone={() => { setShowCreate(false); loadPage(0); }}
+                />
+            )}
+
+            {detailTripId && (
+                <TripDetailModal
+                    tripId={detailTripId}
+                    onClose={() => setDetailTripId(null)}
+                    onChange={() => loadPage(pagination.page)}
                 />
             )}
 
