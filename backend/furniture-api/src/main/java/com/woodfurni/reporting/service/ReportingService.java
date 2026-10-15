@@ -643,10 +643,22 @@ public class ReportingService {
                         new Document("environment", "$product.environment")
                                 .append("categoryId", "$product.categoryId")
                                 .append("categoryName", "$category.name"))
-                        .append("revenue",
+                                .append("revenue",
                                 new Document("$sum",
                                         new Document("$multiply",
-                                                List.of("$items.unitPrice", "$items.quantity"))))
+                                                List.of(
+                                                        new Document("$cond", List.of(
+                                                                new Document("$eq", List.of(
+                                                                        new Document("$type", "$items.unitPrice"),
+                                                                        "string")),
+                                                                0.0,
+                                                                "$items.unitPrice")),
+                                                        new Document("$cond", List.of(
+                                                                new Document("$eq", List.of(
+                                                                        new Document("$type", "$items.quantity"),
+                                                                        "string")),
+                                                                0.0,
+                                                                "$items.quantity"))))))
                         .append("orderCount",
                                 new Document("$sum", 1))));
         stages.add(ctx -> new Document("$project",
@@ -787,15 +799,20 @@ public class ReportingService {
                         new org.bson.Document("$in", java.util.List.of("INDOOR", "OUTDOOR"))));
 
         // Sum unitPrice * quantity per environment. Guard nulls with $ifNull.
+        // Use $toDouble so string values are coerced to numbers before $multiply.
         org.bson.Document groupByEnv = new org.bson.Document("$group",
                 new org.bson.Document("_id", "$normalisedEnv")
                         .append("revenue",
                                 new org.bson.Document("$sum",
                                         new org.bson.Document("$multiply", java.util.List.of(
                                                 new org.bson.Document("$ifNull",
-                                                        java.util.List.of("$items.unitPrice", 0)),
+                                                        java.util.List.of(
+                                                                new org.bson.Document("$toDouble", "$items.unitPrice"),
+                                                                0.0)),
                                                 new org.bson.Document("$ifNull",
-                                                        java.util.List.of("$items.quantity", 0))))))
+                                                        java.util.List.of(
+                                                                new org.bson.Document("$toDouble", "$items.quantity"),
+                                                                0.0))))))
                         .append("orderCount",
                                 new org.bson.Document("$sum", 1)));
 

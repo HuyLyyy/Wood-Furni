@@ -109,14 +109,21 @@ public class DebugController {
                 new Document("normalisedEnv",
                         new Document("$in", List.of("INDOOR", "OUTDOOR"))));
 
-        // Sum unitPrice * quantity, guard nulls with $ifNull.
+        // Sum unitPrice * quantity. unitPrice/quantity may be stored as
+        // strings in some orders, so coerce with $toDouble and guard nulls
+        // with $ifNull before the multiply (otherwise MongoDB throws
+        // TypeMismatch: "$multiply only supports numeric types, not string").
         Document groupByEnv = new Document("$group",
                 new Document("_id", "$normalisedEnv")
                         .append("revenue",
                                 new Document("$sum",
                                         new Document("$multiply", List.of(
-                                                new Document("$ifNull", List.of("$items.unitPrice", 0)),
-                                                new Document("$ifNull", List.of("$items.quantity", 0))))))
+                                                new Document("$ifNull", List.of(
+                                                        new Document("$toDouble", "$items.unitPrice"),
+                                                        0.0)),
+                                                new Document("$ifNull", List.of(
+                                                        new Document("$toDouble", "$items.quantity"),
+                                                        0.0))))))
                         .append("orderCount",
                                 new Document("$sum", 1)));
 
