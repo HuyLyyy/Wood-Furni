@@ -12,6 +12,9 @@
  */
 export const BUSINESS_TIMEZONE = 'Asia/Ho_Chi_Minh';
 
+// BUILD: 2026-10-15T13:10Z v3 — force Vercel bundle hash bump
+export const BUILD_VERSION = 'v3-2026-10-15-fix-vn-tz';
+
 export const formatCurrency = (amount, currency = 'VND') => {
     if (amount == null) return '—';
     const number = Number(amount);
