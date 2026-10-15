@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { deliveryApi } from '../../services/apiDelivery.js';
-import { formatDateTime } from '../../utils/format.js';
+import { formatDateTime, toIsoVnDateTimeLocal } from '../../utils/format.js';
 import { Button } from '../../components/index.js';
 import './DeliveryPage.css';
 
@@ -151,7 +151,10 @@ export default function TripDetailModal({ tripId, onClose, onChange }) {
                 result = await deliveryApi.rescheduleOrder(tripId, activeOrder.orderId, {
                     reason: form.reason,
                     customReason: form.customReason || null,
-                    nextDeliveryDate: new Date(form.nextDeliveryDate).toISOString(),
+                    // Dùng helper đã có sẵn — convert datetime-local (VN wall-clock)
+                    // sang ISO với offset +07:00. Tránh bug "1970" do browser parse
+                    // sai timezone.
+                    nextDeliveryDate: toIsoVnDateTimeLocal(form.nextDeliveryDate),
                     preferredTimeWindow: form.preferredTimeWindow || null,
                     note: form.note || null,
                     proofPhotoUrl: null,

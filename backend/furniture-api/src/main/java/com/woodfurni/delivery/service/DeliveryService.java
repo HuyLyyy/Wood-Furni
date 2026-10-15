@@ -757,8 +757,19 @@ public class DeliveryService {
 
     /**
      * Helper: sau khi tài xế xử lý xong 1 đơn, kiểm tra xem tất cả đơn trong
-     * chuyến đã xong chưa. Nếu rồi → trip COMPLETED. Nếu toàn bộ đơn còn lại
-     * đều RESCHEDULED/FAILED → trip RESCHEDULED.
+     * chuyến đã xong chưa.
+     *
+     * Quy tắc chuyển trạng thái trip:
+     *  - Có đơn DELIVERED (giao thành công) + tất cả đơn khác đã xử lý xong
+     *    (RESCHEDULED/FAILED/UNREACHABLE) → COMPLETED
+     *  - KHÔNG có đơn DELIVERED nào, tất cả đã RESCHEDULED/FAILED → RESCHEDULED
+     *  - Có đơn UNREACHABLE (chờ tài xế) + còn PENDING → giữ nguyên status
+     *    (chuyến vẫn đang xử lý)
+     *  - Có PENDING (chưa xử lý) → giữ nguyên status
+     *
+     * LƯU Ý: Nếu trip có đơn RESCHEDULED → KHÔNG auto-COMPLETED. Phải để
+     * RESCHEDULED chờ giao lại. (Trước đây tính finished = delivered+rescheduled+failed
+     * rồi so sánh == total là sai — trip 1 đơn RESCHEDULED cũng bị COMPLETED.)
      */
     private DeliveryActionResult finalizeTripAfterAction(DeliveryTrip t, String performedBy, String logMsg) {
         List<DeliveryTripOrder> links = tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId());
@@ -775,16 +786,32 @@ public class DeliveryService {
             }
         }
         int total = links.size();
-        int finished = delivered + rescheduled + failed;
+        int processed = delivered + rescheduled + failed; // đã xử lý xong (không tính UNREACHABLE vì đó chỉ là tạm thời)
 
         DeliveryTripStatus newStatus = t.getStatus();
-        if (finished == total) {
+
+        if (rescheduled > 0) {
+            // Có đơn bị hoãn → chuyến CHƯA hoàn thành. Nếu còn đơn nào đó đang
+            // xử lý (PENDING / UNREACHABLE) thì giữ status cũ (SHIPPING/ARRIVED);
+            // nếu mọi đơn khác đều đã xử lý (chỉ còn RESCHEDULED/FAILED) → RESCHEDULED.
+            if (pending == 0 && unreachable == 0 && delivered == 0) {
+                newStatus = DeliveryTripStatus.RESCHEDULED;
+            } else {
+                // Có đơn vẫn đang giao → giữ nguyên SHIPPING/ARRIVED.
+                if (newStatus == DeliveryTripStatus.RESCHEDULED) {
+                    newStatus = DeliveryTripStatus.SHIPPING;
+                }
+            }
+        } else if (processed == total && delivered > 0) {
+            // Tất cả đã xử lý VÀ có ít nhất 1 đơn DELIVERED → COMPLETED.
             newStatus = DeliveryTripStatus.COMPLETED;
             t.setCompletedAt(Instant.now());
-        } else if (delivered == 0 && rescheduled > 0 && (pending + unreachable) == 0) {
-            // Không còn đơn nào có thể giao tiếp (tất cả hoãn hoặc fail) nhưng không có delivered.
+        } else if (processed == total && delivered == 0) {
+            // Tất cả đã xử lý nhưng không có đơn nào DELIVERED (toàn FAILED).
             newStatus = DeliveryTripStatus.RESCHEDULED;
         }
+        // Ngược lại (còn PENDING/UNREACHABLE) → giữ nguyên status hiện tại.
+
         t.setStatus(newStatus);
         tripRepository.save(t);
         log.info("[DeliveryTrip] {} action by {}: {} | trip -> {} (delivered={}, rescheduled={}, failed={}, pending={}, unreachable={})",
