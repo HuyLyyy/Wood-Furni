@@ -87,8 +87,9 @@ export default function DeliveryPage() {
         {
             key: '_actions', header: 'Hành động', width: 320,
             render: (r) => {
-                const activeStatuses = ['SHIPPING', 'ARRIVED', 'RESCHEDULED'];
-                const isActive = activeStatuses.includes(r.status);
+                // Chỉ SHIPPING/ARRIVED mới có thể bấm "Hoàn thành" trực tiếp.
+                // RESCHEDULED = đang chờ giao lại theo nextDeliveryDate, phải tạo trip giao lại.
+                const canComplete = r.status === 'SHIPPING' || r.status === 'ARRIVED';
                 return (
                     <div className="row-actions">
                         {/* Luôn có nút xem chi tiết — áp dụng cho MỌI trạng thái */}
@@ -97,6 +98,12 @@ export default function DeliveryPage() {
                             className="btn-row btn-row--secondary"
                             onClick={() => setDetailTripId(r.id)}
                         >Chi tiết</button>
+
+                        {r.status === 'RESCHEDULED' && (
+                            <span className="row-hint" title="Chuyến đang chờ giao lại theo khung giờ đã hẹn. Hoàn thành sau khi tạo và xử lý xong chuyến giao lại.">
+                                ⏳ Hoãn giao — chờ khung giờ giao lại
+                            </span>
+                        )}
 
                         {r.status === 'PLANNING' && (
                             <>
@@ -132,7 +139,7 @@ export default function DeliveryPage() {
                             </>
                         )}
 
-                        {isActive && (
+                        {canComplete && (
                             <button
                                 type="button"
                                 className="btn-row btn-row--warning"
