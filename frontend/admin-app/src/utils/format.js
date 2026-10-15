@@ -36,8 +36,10 @@ export const formatNumber = (value) => {
 export const formatDate = (iso) => {
     if (!iso) return '—';
     try {
+        const d = parseInstant(iso);
+        if (!d) return '—';
         // LUÔN dùng timezone VN — không phụ thuộc máy user.
-        return new Date(iso).toLocaleDateString('vi-VN', {
+        return d.toLocaleDateString('vi-VN', {
             day: '2-digit', month: '2-digit', year: 'numeric',
             timeZone: BUSINESS_TIMEZONE,
         });
@@ -49,10 +51,12 @@ export const formatDate = (iso) => {
 export const formatDateTime = (iso) => {
     if (!iso) return '—';
     try {
+        const d = parseInstant(iso);
+        if (!d) return '—';
         // LUÔN dùng timezone VN — không phụ thuộc máy user.
         // Nếu không có timeZone, browser sẽ dùng local timezone máy admin,
         // khiến admin ở nước khác thấy giờ/ngày sai lệch ±7h.
-        return new Date(iso).toLocaleString('vi-VN', {
+        return d.toLocaleString('vi-VN', {
             day: '2-digit', month: '2-digit', year: 'numeric',
             hour: '2-digit', minute: '2-digit',
             timeZone: BUSINESS_TIMEZONE,
@@ -61,6 +65,45 @@ export const formatDateTime = (iso) => {
         return '—';
     }
 };
+
+/**
+ * Parse a datetime value that may come in any of these forms:
+ *   1. ISO 8601 string with offset: "2026-10-16T11:00:00+07:00"
+ *   2. ISO 8601 string UTC:       "2026-10-16T04:00:00.000Z"
+ *   3. Plain ISO:                 "2026-10-16T04:00:00"
+ *   4. Unix seconds (number):     1792094400          ← backend Spring serialize Instant thành float seconds
+ *   5. Unix milliseconds (number):1792094400000
+ *   6. Unix seconds as string:    "1792094400"
+ *   7. Unix ms as string:         "1792094400000"
+ *
+ * Trước đây `new Date(value)` nhận vào số 1792094400 (seconds) sẽ bị hiểu
+ * nhầm là MILLISECONDS, cho ra "1970-01-22T01:48:24Z" — đúng với "01:48 22/01/1970"
+ * user báo lỗi. Đây là bug ROOT CAUSE của triệu chứng 1970.
+ *
+ * Heuristic phân biệt seconds vs milliseconds:
+ *   - Nếu number < 1e12 (~ 33658-09-27) → coi là SECONDS, *1000
+ *   - Nếu number >= 1e12 → coi là MILLISECONDS, giữ nguyên
+ */
+function parseInstant(value) {
+    if (value == null) return null;
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
+
+    // Nếu là chuỗi số (backend đôi khi trả về number dưới dạng string)
+    if (typeof value === 'string' && /^\d+(\.\d+)?$/.test(value.trim())) {
+        value = Number(value.trim());
+    }
+
+    if (typeof value === 'number') {
+        // Phân biệt seconds vs milliseconds
+        const ms = value < 1e12 ? value * 1000 : value;
+        const d = new Date(ms);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    // String ISO bình thường — new Date() xử lý đúng
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+}
 
 /**
  * Format an ISO datetime into a yyyy-MM-ddTHH:mm value suitable for
@@ -166,8 +209,8 @@ export function toIsoVnDateTimeLocal(dtLocal) {
 export function toDateTimeLocalValue(iso) {
     if (!iso) return '';
     try {
-        const d = new Date(iso);
-        if (Number.isNaN(d.getTime())) return '';
+        const d = parseInstant(iso);
+        if (!d) return '';
         const pad = (n) => String(n).padStart(2, '0');
         // Lấy ngày/giờ theo timezone VN (UTC+7) — không phụ thuộc browser.
         const parts = new Intl.DateTimeFormat('en-CA', {
