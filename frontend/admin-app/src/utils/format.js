@@ -1,3 +1,17 @@
+/**
+ * BUSINESS_TIMEZONE — Vietnam (UTC+7).
+ *
+ * Used by all "calendar day" filters: the user expects "2026-09-02" to mean
+ * the whole of 2 Sep in Vietnam time, not the whole of 2 Sep in UTC. Picking
+ * UTC causes orders created between 07:00–23:59 SGT on 2 Sep to be wrongly
+ * attributed to 3 Sep, and orders created between 00:00–06:59 SGT on 2 Sep
+ * to be wrongly attributed to 1 Sep.
+ *
+ * CŨNG được dùng cho formatDate/formatDateTime để tránh phụ thuộc timezone
+ * máy admin (admin ở nước khác sẽ thấy giờ lệch ±7h).
+ */
+export const BUSINESS_TIMEZONE = 'Asia/Ho_Chi_Minh';
+
 export const formatCurrency = (amount, currency = 'VND') => {
     if (amount == null) return '—';
     const number = Number(amount);
@@ -19,8 +33,10 @@ export const formatNumber = (value) => {
 export const formatDate = (iso) => {
     if (!iso) return '—';
     try {
+        // LUÔN dùng timezone VN — không phụ thuộc máy user.
         return new Date(iso).toLocaleDateString('vi-VN', {
             day: '2-digit', month: '2-digit', year: 'numeric',
+            timeZone: BUSINESS_TIMEZONE,
         });
     } catch {
         return '—';
@@ -30,9 +46,13 @@ export const formatDate = (iso) => {
 export const formatDateTime = (iso) => {
     if (!iso) return '—';
     try {
+        // LUÔN dùng timezone VN — không phụ thuộc máy user.
+        // Nếu không có timeZone, browser sẽ dùng local timezone máy admin,
+        // khiến admin ở nước khác thấy giờ/ngày sai lệch ±7h.
         return new Date(iso).toLocaleString('vi-VN', {
             day: '2-digit', month: '2-digit', year: 'numeric',
             hour: '2-digit', minute: '2-digit',
+            timeZone: BUSINESS_TIMEZONE,
         });
     } catch {
         return '—';
@@ -75,17 +95,7 @@ function yyyyMmSplitter(s) {
 }
 
 /**
- * BUSINESS_TIMEZONE — Vietnam (UTC+7).
- *
- * Used by all "calendar day" filters: the user expects "2026-09-02" to mean
- * the whole of 2 Sep in Vietnam time, not the whole of 2 Sep in UTC. Picking
- * UTC causes orders created between 07:00–23:59 SGT on 2 Sep to be wrongly
- * attributed to 3 Sep, and orders created between 00:00–06:59 SGT on 2 Sep
- * to be wrongly attributed to 1 Sep.
- */
-export const BUSINESS_TIMEZONE = 'Asia/Ho_Chi_Minh';
-
-// Vietnam has no daylight savings, so the offset is a fixed -7h.
+ * Vietnam has no daylight savings, so the offset is a fixed -7h.
 // To convert a "wall-clock time in VN" (e.g. 00:00:00 on 2026-09-02)
 // to its UTC instant, subtract 7 hours:
 //   instant = Date.UTC(y,m,d,H,M,S) - 7 * 3600 * 1000
@@ -145,17 +155,28 @@ export function toIsoVnDateTimeLocal(dtLocal) {
 /**
  * Convert an ISO-8601 datetime string (with explicit offset, e.g.
  * "2026-10-10T17:00:00+07:00") to a datetime-local "yyyy-MM-ddTHH:mm" value.
- * Works correctly regardless of the admin's browser timezone because the
- * offset is explicit in the string — JavaScript's Date constructor respects it.
  *
- * Returns '' for null/invalid input.
+ * Trước đây dùng `d.getHours()/getDate()` (LOCAL time của browser) → admin
+ * ở nước khác sẽ thấy ngày/giờ sai. Fix: dùng `toLocaleString` với
+ * `timeZone: BUSINESS_TIMEZONE` để LUÔN lấy giờ VN.
  */
 export function toDateTimeLocalValue(iso) {
     if (!iso) return '';
     try {
-        const d = new Date(iso); // parses +07:00 → correct VN date/time
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return '';
         const pad = (n) => String(n).padStart(2, '0');
-        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        // Lấy ngày/giờ theo timezone VN (UTC+7) — không phụ thuộc browser.
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: BUSINESS_TIMEZONE,
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hour12: false,
+        }).formatToParts(d);
+        const get = (type) => parts.find((p) => p.type === type)?.value || '00';
+        // en-CA đôi khi trả hour = 24 thay vì 00 cho 00:00.
+        let hour = get('hour');
+        if (hour === '24') hour = '00';
+        return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`;
     } catch {
         return '';
     }

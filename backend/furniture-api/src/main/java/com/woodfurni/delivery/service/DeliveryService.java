@@ -907,10 +907,16 @@ public class DeliveryService {
     }
 
     /**
-     * Sửa dữ liệu cũ bị bug timezone (Instant gần epoch 0) cho nextDeliveryDate
-     * trên Order + DeliveryTrip + DeliveryTripOrder. Logic: nếu Instant < 2025
-     * thì coi như corrupted → set = lastRescheduleAt + 1 day (hoặc createdAt +
-     * N ngày nếu cần).
+     * Sửa dữ liệu cũ bị bug timezone cho nextDeliveryDate trên Order +
+     * DeliveryTrip + DeliveryTripOrder.
+     *
+     * Nhận biết 2 loại corruption:
+     *  1. Instant < 2020-01-01 → chắc chắn corrupted (thường gần epoch 0)
+     *  2. nextDeliveryDate lệch ±1 ngày so với dự kiến:
+     *     - lastRescheduleAt có ở 1 ngày X
+     *     - nextDeliveryDate đang ở X+1 ngày lệch 1 → bug date shift
+     *     (Hiện tại không áp dụng heuristic này vì nextDeliveryDate hợp lệ
+     *     có thể ở bất kỳ ngày nào trong tương lai — chỉ fix loại 1.)
      */
     public int fixCorruptedNextDeliveryDates(String performedBy) {
         Instant year2020 = Instant.parse("2020-01-01T00:00:00Z");
