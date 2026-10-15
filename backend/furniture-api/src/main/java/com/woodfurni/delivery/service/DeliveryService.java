@@ -454,9 +454,33 @@ public class DeliveryService {
         DeliveryTrip t = tripRepository.findById(tripId)
                 .orElseThrow(() -> new EntityNotFoundException("DeliveryTrip not found: " + tripId));
 
-        if (t.getStatus() != DeliveryTripStatus.SHIPPING) {
+        if (t.getStatus() != DeliveryTripStatus.SHIPPING
+                && t.getStatus() != DeliveryTripStatus.ARRIVED) {
             throw new IllegalStateException(
-                    "Chỉ chuyến đang GIAO mới có thể hoàn thành. Trạng thái hiện tại: " + t.getStatus());
+                    "Chỉ chuyến đang GIAO (SHIPPING) hoặc ĐÃ ĐẾN (ARRIVED) mới có thể hoàn thành. "
+                  + "Trạng thái hiện tại: " + t.getStatus() + ". "
+                  + "Nếu chuyến đã hoãn (RESCHEDULED) / hủy (CANCELLED) / hoàn thành (COMPLETED) thì không thể hoàn thành lại.");
+        }
+
+        // Kiểm tra per-order: tất cả đơn phải DELIVERED hoặc FAILED trước khi COMPLETED trip.
+        java.util.List<DeliveryTripOrder> pendingOrders = new java.util.ArrayList<>();
+        for (DeliveryTripOrder link : tripOrderRepository.findByTripIdOrderBySequenceAsc(tripId)) {
+            if (link.getDeliveryState() == OrderDeliveryState.PENDING
+                    || link.getDeliveryState() == OrderDeliveryState.UNREACHABLE
+                    || link.getDeliveryState() == OrderDeliveryState.RESCHEDULED) {
+                pendingOrders.add(link);
+            }
+        }
+        if (!pendingOrders.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("Không thể hoàn thành chuyến khi còn ")
+              .append(pendingOrders.size())
+              .append(" đơn chưa xử lý xong (DELIVERED/FAILED). ");
+            sb.append("Đơn hàng SHIPPING (Bước 2 - 6), đơn DELIVERED (Bước 4 - 5), ");
+            sb.append("đơn hoãn giao (Bước 4 - 5) phải được xử lý từ chi tiết chuyến xe (TripDetailModal), ");
+            sb.append("không thể hoàn thành trực tiếp ở đây khi tất cả đơn chưa DELIVERED. ");
+            sb.append("Vui lòng vào chi tiết chuyến để xử lý từng đơn.");
+            throw new IllegalStateException(sb.toString());
         }
 
         t.setStatus(DeliveryTripStatus.COMPLETED);
