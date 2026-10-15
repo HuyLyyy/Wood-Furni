@@ -747,9 +747,10 @@ public class ReportingService {
         //   $group        → by normalised environment, sum unitPrice*qty
         //   $project      → reshape to {environment, revenue, orderCount}
         //
-        // KEY FIX: uses simple localField/foreignField $lookup (no $expr,
-        // no $toObjectId, no $regexMatch, no $cond) — MongoDB resolves
-        // string-vs-ObjectId type mismatch automatically.
+        // KEY FIX: uses $lookup with $expr/$or/$toObjectId — localField/foreignField
+        // does NOT auto-convert string↔ObjectId, causing all lookups to silently fail.
+        // The $or with $convert handles mixed-type productId (string vs ObjectId)
+        // and the $toDouble in $multiply handles unitPrice/quantity stored as strings.
 
         // Exclude CANCELLED/RETURNED/PENDING_CANCEL and REFUNDED.
         org.bson.Document orderMatch = new org.bson.Document("$match",
@@ -770,12 +771,29 @@ public class ReportingService {
                 new org.bson.Document("productIdStr",
                         new org.bson.Document("$toString", "$items.productId")));
 
-        // Simple $lookup — no $expr, no $toObjectId. MongoDB 4.4+ handles
-        // the string-vs-ObjectId type coercion automatically.
+        // Simple $lookup with $expr/$or/$toObjectId — handles mixed-type
+        // productId (string vs ObjectId) safely. Unlike localField/foreignField
+        // this does NOT auto-convert string↔ObjectId, so we must explicitly try
+        // $convert to objectId first, then fall back to string match.
         org.bson.Document lookupProduct = new org.bson.Document("$lookup",
                 new org.bson.Document("from", COL_PRODUCTS)
-                        .append("localField", "productIdStr")
-                        .append("foreignField", "_id")
+                        .append("let", new org.bson.Document("pid", "$productIdStr"))
+                        .append("pipeline", java.util.List.of(
+                                new org.bson.Document("$match", new org.bson.Document("$expr",
+                                        new org.bson.Document("$or", java.util.List.of(
+                                                // 1) try matching as ObjectId, swallow conversion errors
+                                                new org.bson.Document("$eq", java.util.List.of(
+                                                        "$_id",
+                                                        new org.bson.Document("$convert", new org.bson.Document()
+                                                                .append("input", "$$pid")
+                                                                .append("to", "objectId")
+                                                                .append("onError", null)
+                                                                .append("onNull", null)))),
+                                                // 2) fallback: match as string
+                                                new org.bson.Document("$eq", java.util.List.of(
+                                                        "$_id",
+                                                        "$$pid"))
+                                        ))))))
                         .append("as", "product"));
 
         // Drop rows where the product no longer exists (deleted after order).
