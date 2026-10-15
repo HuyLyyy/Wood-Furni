@@ -184,6 +184,59 @@ public class DebugController {
     }
 
     /**
+     * Cross-check endpoint: dump EVERY line-item from EVERY non-cancelled,
+     * non-refunded order, joined to the product, with lineRevenue computed.
+     * Manually summing these line revenues by environment should equal the
+     * /revenue-by-environment response. This is the independent truth.
+     */
+    @GetMapping("/revenue-by-environment-audit")
+    public ResponseEntity<ApiResponse<List<Document>>> debugRevenueAudit() {
+        List<Document> pipeline = List.of(
+                // Exclude the same orders as ReportingService
+                new Document("$match", new Document("$and", List.of(
+                        new Document("status", new Document("$nin",
+                                List.of("CANCELLED", "RETURNED", "PENDING_CANCEL"))),
+                        new Document("paymentStatus", new Document("$ne", "REFUNDED"))))),
+                new Document("$unwind", "$items"),
+                new Document("$addFields", new Document("productIdStr",
+                        new Document("$toString", "$items.productId"))),
+                new Document("$lookup", new Document()
+                        .append("from", "products")
+                        .append("let", new Document("pid", "$productIdStr"))
+                        .append("pipeline", List.of(
+                                new Document("$match", new Document("$expr",
+                                        new Document("$or", List.of(
+                                                new Document("$eq", List.of(
+                                                        "$_id",
+                                                        new Document("$convert", new Document()
+                                                                .append("input", "$$pid")
+                                                                .append("to", "objectId")
+                                                                .append("onError", null)
+                                                                .append("onNull", null)))),
+                                                new Document("$eq", List.of("$_id", "$$pid"))))))))
+                        .append("as", "product")),
+                new Document("$unwind", new Document("path", "$product")
+                        .append("preserveNullAndEmptyArrays", false)),
+                new Document("$addFields", new Document("lineRevenue",
+                        new Document("$multiply", List.of(
+                                new Document("$ifNull", List.of(
+                                        new Document("$toDouble", "$items.unitPrice"), 0.0)),
+                                new Document("$ifNull", List.of(
+                                        new Document("$toDouble", "$items.quantity"), 0.0)))))),
+                new Document("$project", new Document()
+                        .append("_id", 0)
+                        .append("orderNumber", 1)
+                        .append("productName", "$items.productName")
+                        .append("environment", "$product.environment")
+                        .append("quantity", "$items.quantity")
+                        .append("unitPrice", "$items.unitPrice")
+                        .append("lineRevenue", 1)));
+        List<Document> rows = new ArrayList<>();
+        mongoTemplate.getCollection("orders").aggregate(pipeline).into(rows);
+        return ResponseEntity.ok(ApiResponse.success(rows));
+    }
+
+    /**
      * Same as revenue-by-environment-verify, but uses $toObjectId in the
      * $lookup so we can compare which variant succeeds. If this returns
      * non-empty data but the original returns [] → MongoDB isn't
