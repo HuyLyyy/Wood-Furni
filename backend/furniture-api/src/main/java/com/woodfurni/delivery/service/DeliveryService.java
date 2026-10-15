@@ -32,6 +32,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
@@ -768,11 +769,79 @@ public class DeliveryService {
      *  - Có PENDING (chưa xử lý) → giữ nguyên status
      *
      * LƯU Ý: Nếu trip có đơn RESCHEDULED → KHÔNG auto-COMPLETED. Phải để
-     * RESCHEDULED chờ giao lại. (Trước đây tính finished = delivered+rescheduled+failed
-     * rồi so sánh == total là sai — trip 1 đơn RESCHEDULED cũng bị COMPLETED.)
+     * RESCHEDULED chờ giao lại.
      */
     private DeliveryActionResult finalizeTripAfterAction(DeliveryTrip t, String performedBy, String logMsg) {
-        List<DeliveryTripOrder> links = tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId());
+        DeliveryTripStatus newStatus = computeTripStatus(t);
+        boolean nowCompleted = newStatus == DeliveryTripStatus.COMPLETED
+                && t.getStatus() != DeliveryTripStatus.COMPLETED;
+        if (nowCompleted) {
+            t.setCompletedAt(Instant.now());
+        }
+        t.setStatus(newStatus);
+        tripRepository.save(t);
+
+        // counters for response
+        int[] counters = countStates(tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId()));
+        log.info("[DeliveryTrip] {} action by {}: {} | trip -> {} (delivered={}, rescheduled={}, failed={}, pending={}, unreachable={})",
+                t.getTripNumber(), performedBy, logMsg, newStatus,
+                counters[0], counters[1], counters[2], counters[3], counters[4]);
+
+        return DeliveryActionResult.builder()
+                .tripStatus(newStatus.name())
+                .orderStatus("UPDATED")
+                .warning(false)
+                .warningMessage(null)
+                .totalOrders(counters[0] + counters[1] + counters[2] + counters[3] + counters[4])
+                .deliveredCount(counters[0])
+                .rescheduledCount(counters[1])
+                .failedCount(counters[2])
+                .build();
+    }
+
+    /**
+     * Tính trạng thái chuyến dựa trên trạng thái của từng đơn. Pure function —
+     * không lưu DB, chỉ trả về status mới.
+     *
+     * Quy tắc:
+     *  1. Nếu tất cả đơn đã DELIVERED (và không còn PENDING/RESCHEDULED/FAILED/
+     *     UNREACHABLE nào) → COMPLETED.
+     *  2. Nếu KHÔNG có DELIVERED nào + tất cả đều RESCHEDULED/FAILED → RESCHEDULED.
+     *  3. Có DELIVERED + còn RESCHEDULED/FAILED (chờ giao lại) → giữ SHIPPING
+     *     (chuyến vẫn đang xử lý).
+     *  4. Có PENDING/UNREACHABLE → giữ status cũ (chuyến chưa xong).
+     */
+    public DeliveryTripStatus computeTripStatus(DeliveryTrip t) {
+        int[] c = countStates(tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId()));
+        int delivered = c[0], rescheduled = c[1], failed = c[2], pending = c[3], unreachable = c[4];
+        int total = delivered + rescheduled + failed + pending + unreachable;
+
+        if (total == 0) {
+            return t.getStatus(); // chuyến rỗng — không đổi
+        }
+        if (pending > 0 || unreachable > 0) {
+            // Vẫn còn đơn cần xử lý — giữ nguyên status.
+            return t.getStatus();
+        }
+        if (delivered > 0 && rescheduled == 0 && failed == 0) {
+            // Tất cả delivered.
+            return DeliveryTripStatus.COMPLETED;
+        }
+        if (delivered == 0) {
+            // Không delivered, tất cả rescheduled/failed.
+            return DeliveryTripStatus.RESCHEDULED;
+        }
+        // Có delivered + có rescheduled/failed → chuyến vẫn đang xử lý phần giao lại.
+        // Nếu status hiện tại là COMPLETED thì giữ COMPLETED (legacy data).
+        // Còn lại → SHIPPING (chuyển từ RESCHEDULED về SHIPPING khi bắt đầu giao lại).
+        if (t.getStatus() == DeliveryTripStatus.COMPLETED) {
+            return DeliveryTripStatus.COMPLETED;
+        }
+        return DeliveryTripStatus.SHIPPING;
+    }
+
+    /** Trả về [delivered, rescheduled, failed, pending, unreachable]. */
+    private int[] countStates(List<DeliveryTripOrder> links) {
         int delivered = 0, rescheduled = 0, failed = 0, pending = 0, unreachable = 0;
         for (DeliveryTripOrder l : links) {
             OrderDeliveryState s = l.getDeliveryState() == null
@@ -785,49 +854,106 @@ public class DeliveryService {
                 default: pending++;
             }
         }
-        int total = links.size();
-        int processed = delivered + rescheduled + failed; // đã xử lý xong (không tính UNREACHABLE vì đó chỉ là tạm thời)
+        return new int[]{delivered, rescheduled, failed, pending, unreachable};
+    }
 
-        DeliveryTripStatus newStatus = t.getStatus();
+    /**
+     * Tính lại trạng thái chuyến từ per-order state hiện tại (dùng để sửa dữ
+     * liệu cũ bị finalize logic sai). Trả về trip mới + note giải thích thay đổi.
+     */
+    public DeliveryTripResponse recomputeTripStatus(String tripId, String performedBy) {
+        DeliveryTrip t = tripRepository.findById(tripId)
+                .orElseThrow(() -> new EntityNotFoundException("DeliveryTrip not found: " + tripId));
+        DeliveryTripStatus oldStatus = t.getStatus();
+        DeliveryTripStatus newStatus = computeTripStatus(t);
+        if (oldStatus == newStatus) {
+            log.info("[DeliveryTrip] {} recompute: no change ({})", t.getTripNumber(), oldStatus);
+            return toTripResponse(t, true);
+        }
+        t.setStatus(newStatus);
+        if (newStatus == DeliveryTripStatus.COMPLETED && t.getCompletedAt() == null) {
+            t.setCompletedAt(Instant.now());
+        }
+        DeliveryTrip saved = tripRepository.save(t);
+        log.warn("[DeliveryTrip] {} recompute by {}: {} -> {}", saved.getTripNumber(),
+                performedBy, oldStatus, newStatus);
+        return toTripResponse(saved, true);
+    }
 
-        if (rescheduled > 0) {
-            // Có đơn bị hoãn → chuyến CHƯA hoàn thành. Nếu còn đơn nào đó đang
-            // xử lý (PENDING / UNREACHABLE) thì giữ status cũ (SHIPPING/ARRIVED);
-            // nếu mọi đơn khác đều đã xử lý (chỉ còn RESCHEDULED/FAILED) → RESCHEDULED.
-            if (pending == 0 && unreachable == 0 && delivered == 0) {
-                newStatus = DeliveryTripStatus.RESCHEDULED;
-            } else {
-                // Có đơn vẫn đang giao → giữ nguyên SHIPPING/ARRIVED.
-                if (newStatus == DeliveryTripStatus.RESCHEDULED) {
-                    newStatus = DeliveryTripStatus.SHIPPING;
+    /**
+     * Tính lại status cho TẤT CẢ chuyến (dùng 1 lần sau khi deploy fix logic).
+     * Trả về số chuyến đã thay đổi status.
+     */
+    public int recomputeAllTripStatuses(String performedBy) {
+        List<DeliveryTrip> all = tripRepository.findAll();
+        int changed = 0;
+        for (DeliveryTrip t : all) {
+            DeliveryTripStatus old = t.getStatus();
+            if (old == DeliveryTripStatus.CANCELLED) continue;
+            DeliveryTripStatus neu = computeTripStatus(t);
+            if (old != neu) {
+                t.setStatus(neu);
+                if (neu == DeliveryTripStatus.COMPLETED && t.getCompletedAt() == null) {
+                    t.setCompletedAt(Instant.now());
+                }
+                tripRepository.save(t);
+                log.warn("[DeliveryTrip] {} bulk recompute by {}: {} -> {}",
+                        t.getTripNumber(), performedBy, old, neu);
+                changed++;
+            }
+        }
+        log.info("[DeliveryTrip] Bulk recompute by {} done: {} trips changed", performedBy, changed);
+        return changed;
+    }
+
+    /**
+     * Sửa dữ liệu cũ bị bug timezone (Instant gần epoch 0) cho nextDeliveryDate
+     * trên Order + DeliveryTrip + DeliveryTripOrder. Logic: nếu Instant < 2025
+     * thì coi như corrupted → set = lastRescheduleAt + 1 day (hoặc createdAt +
+     * N ngày nếu cần).
+     */
+    public int fixCorruptedNextDeliveryDates(String performedBy) {
+        Instant year2020 = Instant.parse("2020-01-01T00:00:00Z");
+        int fixed = 0;
+        for (DeliveryTrip t : tripRepository.findAll()) {
+            // Fix trip.nextDeliveryDate
+            if (t.getNextDeliveryDate() != null && t.getNextDeliveryDate().isBefore(year2020)) {
+                Instant base = t.getLastRescheduleAt() != null
+                        ? t.getLastRescheduleAt()
+                        : (t.getCreatedAt() != null ? t.getCreatedAt() : Instant.now());
+                t.setNextDeliveryDate(base.plus(1, ChronoUnit.DAYS));
+                tripRepository.save(t);
+                fixed++;
+                log.warn("[DeliveryTrip] {} fixed corrupted nextDeliveryDate by {}",
+                        t.getTripNumber(), performedBy);
+            }
+            // Fix per-order
+            for (DeliveryTripOrder link : tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId())) {
+                if (link.getNextDeliveryDate() != null && link.getNextDeliveryDate().isBefore(year2020)) {
+                    Instant base = link.getDeliveredAt() != null
+                            ? link.getDeliveredAt()
+                            : (t.getLastRescheduleAt() != null
+                                    ? t.getLastRescheduleAt()
+                                    : (link.getAddedAt() != null ? link.getAddedAt() : Instant.now()));
+                    link.setNextDeliveryDate(base.plus(1, ChronoUnit.DAYS));
+                    tripOrderRepository.save(link);
+                    fixed++;
                 }
             }
-        } else if (processed == total && delivered > 0) {
-            // Tất cả đã xử lý VÀ có ít nhất 1 đơn DELIVERED → COMPLETED.
-            newStatus = DeliveryTripStatus.COMPLETED;
-            t.setCompletedAt(Instant.now());
-        } else if (processed == total && delivered == 0) {
-            // Tất cả đã xử lý nhưng không có đơn nào DELIVERED (toàn FAILED).
-            newStatus = DeliveryTripStatus.RESCHEDULED;
         }
-        // Ngược lại (còn PENDING/UNREACHABLE) → giữ nguyên status hiện tại.
-
-        t.setStatus(newStatus);
-        tripRepository.save(t);
-        log.info("[DeliveryTrip] {} action by {}: {} | trip -> {} (delivered={}, rescheduled={}, failed={}, pending={}, unreachable={})",
-                t.getTripNumber(), performedBy, logMsg, newStatus,
-                delivered, rescheduled, failed, pending, unreachable);
-
-        return DeliveryActionResult.builder()
-                .tripStatus(newStatus.name())
-                .orderStatus("UPDATED")
-                .warning(false)
-                .warningMessage(null)
-                .totalOrders(total)
-                .deliveredCount(delivered)
-                .rescheduledCount(rescheduled)
-                .failedCount(failed)
-                .build();
+        // Fix order
+        for (Order o : orderRepository.findAll()) {
+            if (o.getNextDeliveryDate() != null && o.getNextDeliveryDate().isBefore(year2020)) {
+                Instant base = o.getCreatedAt() != null ? o.getCreatedAt() : Instant.now();
+                o.setNextDeliveryDate(base.plus(1, ChronoUnit.DAYS));
+                orderRepository.save(o);
+                fixed++;
+                log.warn("[Order] {} fixed corrupted nextDeliveryDate by {}",
+                        o.getOrderNumber(), performedBy);
+            }
+        }
+        log.info("[Fix] corrupted nextDeliveryDates fixed by {}: {} entries", performedBy, fixed);
+        return fixed;
     }
 
     // ───────────────────────────────────────────────────────────────────────

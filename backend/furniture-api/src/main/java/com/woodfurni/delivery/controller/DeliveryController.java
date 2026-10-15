@@ -146,6 +146,51 @@ public class DeliveryController {
         return ResponseEntity.ok(ApiResponse.success("Đã hoàn thành chuyến xe.", deliveryService.completeTrip(id, performedBy)));
     }
 
+    /**
+     * Tính lại status của 1 chuyến dựa trên per-order state. Dùng để sửa dữ liệu
+     * cũ bị finalize logic sai.
+     */
+    @PostMapping("/trips/{id}/recompute-status")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'SALES')")
+    @Operation(summary = "Tính lại trạng thái chuyến từ per-order state (fix dữ liệu cũ)")
+    public ResponseEntity<ApiResponse<DeliveryTripResponse>> recomputeTripStatus(
+            @PathVariable String id,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã tính lại trạng thái chuyến.",
+                deliveryService.recomputeTripStatus(id, performedBy)));
+    }
+
+    /**
+     * Tính lại status cho TẤT CẢ chuyến (chỉ chạy 1 lần sau khi deploy fix).
+     */
+    @PostMapping("/trips/recompute-all")
+    @PreAuthorize("hasAnyRole('ADMIN')")
+    @Operation(summary = "Tính lại trạng thái cho tất cả chuyến (chỉ Admin)")
+    public ResponseEntity<ApiResponse<Integer>> recomputeAll(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        int changed = deliveryService.recomputeAllTripStatuses(performedBy);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã tính lại: " + changed + " chuyến thay đổi trạng thái.", changed));
+    }
+
+    /**
+     * Sửa dữ liệu nextDeliveryDate bị corrupted (Instant < 2020 do bug
+     * timezone cũ). Chỉ Admin.
+     */
+    @PostMapping("/trips/fix-corrupted-dates")
+    @PreAuthorize("hasAnyRole('ADMIN')")
+    @Operation(summary = "Sửa nextDeliveryDate bị corrupted (chỉ Admin)")
+    public ResponseEntity<ApiResponse<Integer>> fixCorruptedDates(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        int fixed = deliveryService.fixCorruptedNextDeliveryDates(performedBy);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã sửa " + fixed + " dòng dữ liệu bị lỗi.", fixed));
+    }
+
     // ───────────────────────────────────────────────────────────────────────
     // LUỒNG HOÃN GIAO HÀNG (Bước 1 → 9)
     // ───────────────────────────────────────────────────────────────────────
