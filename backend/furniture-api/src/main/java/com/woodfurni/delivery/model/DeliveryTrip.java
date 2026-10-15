@@ -97,4 +97,21 @@ public class DeliveryTrip {
 
     /** Lý do hủy (optional). */
     private String cancelReason;
+
+    // ─── Reschedule fields (luồng hoãn giao hàng) ────────────────────────
+
+    /** Thời điểm tài xế đến địa điểm giao (chuyển sang ARRIVED). */
+    private Instant arrivedAt;
+
+    /** Số lần đơn trong chuyến đã bị hoãn (tổng các lần reschedule). */
+    private int rescheduleCount;
+
+    /** Lý do hoãn gần nhất (snapshot). */
+    private String lastRescheduleReason;
+
+    /** Ngày giao lại dự kiến gần nhất (snapshot). */
+    private Instant nextDeliveryDate;
+
+    /** Thời điểm hoãn gần nhất. */
+    private Instant lastRescheduleAt;
 }

@@ -1,5 +1,7 @@
 package com.woodfurni.delivery.model;
 
+import com.woodfurni.delivery.enums.OrderDeliveryState;
+import com.woodfurni.delivery.enums.RescheduleReason;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -50,4 +52,29 @@ public class DeliveryTripOrder {
     private double heightCm;
 
     private Instant addedAt;
+
+    // ─── Per-order delivery state (luồng hoãn giao) ────────────────────────
+
+    /** Trạng thái giao của riêng đơn này trong chuyến. Mặc định PENDING. */
+    @Builder.Default
+    private OrderDeliveryState deliveryState = OrderDeliveryState.PENDING;
+
+    /** Thời điểm đơn được xử lý (giao thành công / hoãn / fail) lần cuối. */
+    private Instant deliveredAt;
+
+    /** Lý do hoãn / fail (nếu có). */
+    private RescheduleReason rescheduleReason;
+
+    /** Ghi chú của tài xế khi xử lý đơn (VD: "Khách đi công tác đột xuất"). */
+    private String deliveryNote;
+
+    /** URL ảnh xác nhận do tài xế chụp (optional). */
+    private String proofPhotoUrl;
+
+    /** Số lần đơn này đã bị hoãn (cộng dồn qua các lần giao lại). */
+    @Builder.Default
+    private int rescheduleCount = 0;
+
+    /** Ngày giao lại dự kiến (nếu đơn đang RESCHEDULED). */
+    private Instant nextDeliveryDate;
 }

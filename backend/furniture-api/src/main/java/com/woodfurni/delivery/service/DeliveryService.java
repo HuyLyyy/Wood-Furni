@@ -7,14 +7,18 @@ import com.woodfurni.catalog.product.repository.ProductRepository;
 import com.woodfurni.common.EntityNotFoundException;
 import com.woodfurni.delivery.dto.*;
 import com.woodfurni.delivery.enums.DeliveryTripStatus;
+import com.woodfurni.delivery.enums.OrderDeliveryState;
+import com.woodfurni.delivery.enums.RescheduleReason;
 import com.woodfurni.delivery.enums.VehicleType;
 import com.woodfurni.delivery.model.DeliveryTrip;
 import com.woodfurni.delivery.model.DeliveryTripOrder;
 import com.woodfurni.delivery.repository.DeliveryTripOrderRepository;
 import com.woodfurni.delivery.repository.DeliveryTripRepository;
+import com.woodfurni.notification.client.NotificationClient;
 import com.woodfurni.order.enums.OrderStatus;
 import com.woodfurni.order.model.Order;
 import com.woodfurni.order.model.OrderItem;
+import com.woodfurni.order.model.TrackingUpdate;
 import com.woodfurni.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -60,6 +64,7 @@ public class DeliveryService {
     private final DeliveryTripRepository tripRepository;
     private final DeliveryTripOrderRepository tripOrderRepository;
     private final UserRepository userRepository;
+    private final NotificationClient notificationClient;
 
     private static final DateTimeFormatter TRIP_DATE_FMT = DateTimeFormatter.ofPattern("yyyyMMdd");
 
@@ -463,6 +468,342 @@ public class DeliveryService {
     }
 
     // ───────────────────────────────────────────────────────────────────────
+    // LUỒNG HOÃN GIAO HÀNG (Bước 1→9 trong business flow)
+    // ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Bước 1: Tài xế đến địa điểm giao hàng.
+     * SHIPPING → ARRIVED.
+     */
+    public DeliveryTripResponse arriveAtLocation(String tripId, String performedBy) {
+        DeliveryTrip t = tripRepository.findById(tripId)
+                .orElseThrow(() -> new EntityNotFoundException("DeliveryTrip not found: " + tripId));
+
+        if (t.getStatus() != DeliveryTripStatus.SHIPPING) {
+            throw new IllegalStateException(
+                    "Chỉ chuyến đang GIAO mới có thể đánh dấu đã đến nơi. Trạng thái hiện tại: " + t.getStatus());
+        }
+
+        t.setStatus(DeliveryTripStatus.ARRIVED);
+        t.setArrivedAt(Instant.now());
+
+        DeliveryTrip saved = tripRepository.save(t);
+        log.info("[DeliveryTrip] {} arrived by {}", saved.getTripNumber(), performedBy);
+
+        return toTripResponse(saved, true);
+    }
+
+    /**
+     * Bước 2A: Tài xế xác nhận giao thành công một đơn.
+     * - link.deliveryState = DELIVERED
+     * - order.status: SHIPPING → DELIVERED, payment_status: nếu COD thì UNPAID→PAID khi codCollected=true
+     * - Nếu TẤT CẢ đơn trong chuyến đã xử lý xong → trip COMPLETED.
+     */
+    public DeliveryActionResult markOrderDelivered(String tripId, String orderId,
+                                                   MarkOrderDeliveredRequest req, String performedBy) {
+        DeliveryTrip t = tripRepository.findById(tripId)
+                .orElseThrow(() -> new EntityNotFoundException("DeliveryTrip not found: " + tripId));
+        if (t.getStatus() != DeliveryTripStatus.SHIPPING && t.getStatus() != DeliveryTripStatus.ARRIVED) {
+            throw new IllegalStateException(
+                    "Chỉ chuyến đang GIAO hoặc ĐÃ ĐẾN mới có thể xác nhận giao. Trạng thái hiện tại: " + t.getStatus());
+        }
+
+        DeliveryTripOrder link = tripOrderRepository.findByTripIdAndOrderId(tripId, orderId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Order " + orderId + " không thuộc chuyến " + tripId));
+
+        if (link.getDeliveryState() != OrderDeliveryState.PENDING
+                && link.getDeliveryState() != OrderDeliveryState.UNREACHABLE) {
+            throw new IllegalStateException(
+                    "Đơn này đã được xử lý (state=" + link.getDeliveryState() + ").");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new EntityNotFoundException("Order not found: " + orderId));
+
+        // Cập nhật link
+        link.setDeliveryState(OrderDeliveryState.DELIVERED);
+        link.setDeliveredAt(Instant.now());
+        link.setDeliveryNote(req.getNote());
+        link.setProofPhotoUrl(req.getProofPhotoUrl());
+        tripOrderRepository.save(link);
+
+        // Cập nhật order
+        if (order.getStatus() != OrderStatus.SHIPPING) {
+            // Trường hợp đơn từng bị hoãn (RESCHEDULED) rồi tạo chuyến mới → vẫn hợp lệ
+            // cho phép chuyển sang DELIVERED.
+            log.warn("[DeliveryTrip] Order {} was in {} before marking delivered — overriding.",
+                    orderId, order.getStatus());
+        }
+        order.setStatus(OrderStatus.DELIVERED);
+        order.addStatusHistory(OrderStatus.DELIVERED.name(), performedBy,
+                req.getNote() != null ? req.getNote() : "Tài xế xác nhận đã giao.");
+        order.addTrackingUpdate(TrackingUpdate.builder()
+                .status("Đã giao")
+                .location("Địa điểm khách hàng")
+                .note(req.getReceiverName() != null
+                        ? "Người nhận: " + req.getReceiverName()
+                        : "Khách đã nhận hàng")
+                .updatedAt(Instant.now())
+                .updatedBy(performedBy)
+                .build());
+        orderRepository.save(order);
+
+        // Tổng hợp chuyến
+        return finalizeTripAfterAction(t, performedBy, "Đã giao đơn " + order.getOrderNumber());
+    }
+
+    /**
+     * Bước 2C: Tài xế không liên lạc được khách / đã chờ 15-30 phút.
+     * - link.deliveryState = UNREACHABLE
+     * - order vẫn SHIPPING (chờ xác nhận cuối)
+     * KHÔNG tự động FAILED — tài xế phải gọi lại hoặc escalate.
+     */
+    public DeliveryActionResult markOrderUnreachable(String tripId, String orderId,
+                                                    String note, String proofPhotoUrl, String performedBy) {
+        DeliveryTrip t = tripRepository.findById(tripId)
+                .orElseThrow(() -> new EntityNotFoundException("DeliveryTrip not found: " + tripId));
+        if (t.getStatus() != DeliveryTripStatus.SHIPPING && t.getStatus() != DeliveryTripStatus.ARRIVED) {
+            throw new IllegalStateException(
+                    "Chỉ chuyến đang GIAO hoặc ĐÃ ĐẾN mới có thể đánh dấu không liên lạc được.");
+        }
+
+        DeliveryTripOrder link = tripOrderRepository.findByTripIdAndOrderId(tripId, orderId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Order " + orderId + " không thuộc chuyến " + tripId));
+        if (link.getDeliveryState() != OrderDeliveryState.PENDING) {
+            throw new IllegalStateException(
+                    "Đơn này đã được xử lý (state=" + link.getDeliveryState() + ").");
+        }
+
+        link.setDeliveryState(OrderDeliveryState.UNREACHABLE);
+        link.setDeliveryNote(note);
+        link.setProofPhotoUrl(proofPhotoUrl);
+        link.setDeliveredAt(Instant.now());
+        tripOrderRepository.save(link);
+
+        return finalizeTripAfterAction(t, performedBy, "Đơn không liên lạc được");
+    }
+
+    /**
+     * Bước 2B → 9: Tài xế xác nhận HOÃN giao hàng.
+     *  - link.deliveryState = RESCHEDULED, rescheduleCount++, nextDeliveryDate
+     *  - order.status: SHIPPING → RESCHEDULED, rescheduleCount++
+     *  - trip.rescheduleCount++, lastRescheduleReason, nextDeliveryDate snapshot
+     *  - Nếu lần thứ 3 → warning=true (CSKH can thiệp)
+     *  - Nếu TẤT CẢ đơn trong chuyến đều RESCHEDULED/FAILED → trip = RESCHEDULED
+     */
+    public DeliveryActionResult rescheduleOrder(String tripId, String orderId,
+                                                RescheduleOrderRequest req, String performedBy) {
+        if (req.getReason() == RescheduleReason.OTHER
+                && (req.getCustomReason() == null || req.getCustomReason().isBlank())) {
+            throw new IllegalArgumentException("Khi chọn lý do KHÁC, vui lòng nhập mô tả cụ thể.");
+        }
+        if (req.getNextDeliveryDate() == null) {
+            throw new IllegalArgumentException("Vui lòng chọn thời gian giao lại.");
+        }
+
+        DeliveryTrip t = tripRepository.findById(tripId)
+                .orElseThrow(() -> new EntityNotFoundException("DeliveryTrip not found: " + tripId));
+        if (t.getStatus() != DeliveryTripStatus.SHIPPING
+                && t.getStatus() != DeliveryTripStatus.ARRIVED
+                && t.getStatus() != DeliveryTripStatus.RESCHEDULED) {
+            throw new IllegalStateException(
+                    "Chuyến ở trạng thái " + t.getStatus() + " — không thể hoãn giao.");
+        }
+
+        DeliveryTripOrder link = tripOrderRepository.findByTripIdAndOrderId(tripId, orderId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Order " + orderId + " không thuộc chuyến " + tripId));
+        if (link.getDeliveryState() == OrderDeliveryState.DELIVERED) {
+            throw new IllegalStateException("Đơn đã giao thành công, không thể hoãn.");
+        }
+        if (link.getDeliveryState() == OrderDeliveryState.FAILED) {
+            throw new IllegalStateException("Đơn đã giao thất bại, không thể hoãn — tạo đơn mới.");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new EntityNotFoundException("Order not found: " + orderId));
+
+        String finalReason = req.getReason() == RescheduleReason.OTHER
+                ? req.getCustomReason()
+                : req.getReason().name();
+
+        // Cập nhật link
+        link.setDeliveryState(OrderDeliveryState.RESCHEDULED);
+        link.setRescheduleReason(req.getReason());
+        link.setDeliveryNote(req.getNote());
+        link.setProofPhotoUrl(req.getProofPhotoUrl());
+        link.setRescheduleCount(link.getRescheduleCount() + 1);
+        link.setNextDeliveryDate(req.getNextDeliveryDate());
+        link.setDeliveredAt(Instant.now());
+        tripOrderRepository.save(link);
+
+        // Cập nhật order
+        int newOrderRescheduleCount = order.getRescheduleCount() + 1;
+        order.setRescheduleCount(newOrderRescheduleCount);
+        order.setNextDeliveryDate(req.getNextDeliveryDate());
+        order.setStatus(OrderStatus.RESCHEDULED);
+        String warnNote = newOrderRescheduleCount >= 3
+                ? " ⚠ CẢNH BÁO: Khách đã hoãn " + newOrderRescheduleCount + " lần — CSKH liên hệ."
+                : null;
+        order.addStatusHistory(OrderStatus.RESCHEDULED.name(), performedBy,
+                "Hoãn giao: " + finalReason + (req.getNote() != null ? ". " + req.getNote() : "")
+                        + (warnNote != null ? warnNote : ""));
+        order.addTrackingUpdate(TrackingUpdate.builder()
+                .status("Hoãn giao")
+                .location("Địa điểm khách hàng")
+                .note("Lý do: " + finalReason
+                        + " | Giao lại: " + req.getNextDeliveryDate()
+                        + (req.getPreferredTimeWindow() != null
+                                ? " (" + req.getPreferredTimeWindow() + ")" : ""))
+                .updatedAt(Instant.now())
+                .updatedBy(performedBy)
+                .build());
+        orderRepository.save(order);
+
+        // Realtime notify tới khách
+        try {
+            notificationClient.notifyOrderRescheduled(
+                    order.getId(),
+                    order.getOrderNumber(),
+                    order.getCustomerId(),
+                    finalReason,
+                    req.getNextDeliveryDate(),
+                    newOrderRescheduleCount,
+                    req.getPreferredTimeWindow(),
+                    req.getNote());
+        } catch (Exception ex) {
+            log.warn("[DeliveryTrip] notify reschedule failed: {}", ex.getMessage());
+        }
+
+        // Cập nhật trip snapshot
+        t.setRescheduleCount(t.getRescheduleCount() + 1);
+        t.setLastRescheduleReason(finalReason);
+        t.setNextDeliveryDate(req.getNextDeliveryDate());
+        t.setLastRescheduleAt(Instant.now());
+
+        DeliveryActionResult result = finalizeTripAfterAction(t, performedBy,
+                "Hoãn giao đơn " + order.getOrderNumber() + " — " + finalReason);
+        result.setWarning(newOrderRescheduleCount >= 3);
+        result.setWarningMessage(newOrderRescheduleCount >= 3
+                ? "Khách đã hoãn " + newOrderRescheduleCount + " lần — cần CSKH can thiệp."
+                : null);
+        return result;
+    }
+
+    /**
+     * Bước 4': Tài xế xác nhận giao THẤT BẠI (khách từ chối dứt khoát, địa chỉ
+     * không tiếp cận, v.v.). Khác với "không liên lạc được" (UNREACHABLE) ở chỗ
+     * đây là quyết định cuối cùng.
+     *  - link.deliveryState = FAILED
+     *  - order.status: SHIPPING → RETURNED
+     *  - Không thể tạo lại — CSKH xử lý thủ công.
+     */
+    public DeliveryActionResult markOrderFailed(String tripId, String orderId,
+                                                MarkOrderFailedRequest req, String performedBy) {
+        if (req.getReason() == RescheduleReason.OTHER
+                && (req.getCustomReason() == null || req.getCustomReason().isBlank())) {
+            throw new IllegalArgumentException("Khi chọn lý do KHÁC, vui lòng nhập mô tả cụ thể.");
+        }
+
+        DeliveryTrip t = tripRepository.findById(tripId)
+                .orElseThrow(() -> new EntityNotFoundException("DeliveryTrip not found: " + tripId));
+        if (t.getStatus() != DeliveryTripStatus.SHIPPING
+                && t.getStatus() != DeliveryTripStatus.ARRIVED
+                && t.getStatus() != DeliveryTripStatus.RESCHEDULED) {
+            throw new IllegalStateException(
+                    "Chuyến ở trạng thái " + t.getStatus() + " — không thể đánh dấu thất bại.");
+        }
+
+        DeliveryTripOrder link = tripOrderRepository.findByTripIdAndOrderId(tripId, orderId)
+                .orElseThrow(() -> new EntityNotFoundException(
+                        "Order " + orderId + " không thuộc chuyến " + tripId));
+        if (link.getDeliveryState() == OrderDeliveryState.DELIVERED) {
+            throw new IllegalStateException("Đơn đã giao thành công, không thể đánh dấu thất bại.");
+        }
+        if (link.getDeliveryState() == OrderDeliveryState.RESCHEDULED) {
+            throw new IllegalStateException("Đơn đã được đánh dấu HOÃN — không thể đánh dấu thất bại.");
+        }
+
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new EntityNotFoundException("Order not found: " + orderId));
+
+        String finalReason = req.getReason() == RescheduleReason.OTHER
+                ? req.getCustomReason()
+                : req.getReason().name();
+
+        link.setDeliveryState(OrderDeliveryState.FAILED);
+        link.setRescheduleReason(req.getReason());
+        link.setDeliveryNote(req.getNote());
+        link.setProofPhotoUrl(req.getProofPhotoUrl());
+        link.setDeliveredAt(Instant.now());
+        tripOrderRepository.save(link);
+
+        order.setStatus(OrderStatus.RETURNED);
+        order.addStatusHistory(OrderStatus.RETURNED.name(), performedBy,
+                "Giao thất bại: " + finalReason + (req.getNote() != null ? ". " + req.getNote() : ""));
+        order.addTrackingUpdate(TrackingUpdate.builder()
+                .status("Giao thất bại")
+                .location("Địa điểm khách hàng")
+                .note("Lý do: " + finalReason)
+                .updatedAt(Instant.now())
+                .updatedBy(performedBy)
+                .build());
+        orderRepository.save(order);
+
+        return finalizeTripAfterAction(t, performedBy, "Giao thất bại đơn " + order.getOrderNumber());
+    }
+
+    /**
+     * Helper: sau khi tài xế xử lý xong 1 đơn, kiểm tra xem tất cả đơn trong
+     * chuyến đã xong chưa. Nếu rồi → trip COMPLETED. Nếu toàn bộ đơn còn lại
+     * đều RESCHEDULED/FAILED → trip RESCHEDULED.
+     */
+    private DeliveryActionResult finalizeTripAfterAction(DeliveryTrip t, String performedBy, String logMsg) {
+        List<DeliveryTripOrder> links = tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId());
+        int delivered = 0, rescheduled = 0, failed = 0, pending = 0, unreachable = 0;
+        for (DeliveryTripOrder l : links) {
+            OrderDeliveryState s = l.getDeliveryState() == null
+                    ? OrderDeliveryState.PENDING : l.getDeliveryState();
+            switch (s) {
+                case DELIVERED: delivered++; break;
+                case RESCHEDULED: rescheduled++; break;
+                case FAILED: failed++; break;
+                case UNREACHABLE: unreachable++; break;
+                default: pending++;
+            }
+        }
+        int total = links.size();
+        int finished = delivered + rescheduled + failed;
+
+        DeliveryTripStatus newStatus = t.getStatus();
+        if (finished == total) {
+            newStatus = DeliveryTripStatus.COMPLETED;
+            t.setCompletedAt(Instant.now());
+        } else if (delivered == 0 && rescheduled > 0 && (pending + unreachable) == 0) {
+            // Không còn đơn nào có thể giao tiếp (tất cả hoãn hoặc fail) nhưng không có delivered.
+            newStatus = DeliveryTripStatus.RESCHEDULED;
+        }
+        t.setStatus(newStatus);
+        tripRepository.save(t);
+        log.info("[DeliveryTrip] {} action by {}: {} | trip -> {} (delivered={}, rescheduled={}, failed={}, pending={}, unreachable={})",
+                t.getTripNumber(), performedBy, logMsg, newStatus,
+                delivered, rescheduled, failed, pending, unreachable);
+
+        return DeliveryActionResult.builder()
+                .tripStatus(newStatus.name())
+                .orderStatus("UPDATED")
+                .warning(false)
+                .warningMessage(null)
+                .totalOrders(total)
+                .deliveredCount(delivered)
+                .rescheduledCount(rescheduled)
+                .failedCount(failed)
+                .build();
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
     // BULK ACTIONS
     // ───────────────────────────────────────────────────────────────────────
 
@@ -647,14 +988,30 @@ public class DeliveryService {
                 .completedAt(t.getCompletedAt())
                 .cancelledAt(t.getCancelledAt())
                 .cancelledBy(t.getCancelledBy())
-                .cancelReason(t.getCancelReason());
+                .cancelReason(t.getCancelReason())
+                .arrivedAt(t.getArrivedAt())
+                .rescheduleCount(t.getRescheduleCount())
+                .lastRescheduleReason(t.getLastRescheduleReason())
+                .nextDeliveryDate(t.getNextDeliveryDate())
+                .lastRescheduleAt(t.getLastRescheduleAt());
 
         if (withOrders) {
             List<DeliveryTripOrder> links = tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId());
             List<TripOrderResponse> orders = new ArrayList<>();
+            int delivered = 0, rescheduled = 0, failed = 0, pending = 0;
             for (DeliveryTripOrder link : links) {
                 Order o = orderRepository.findById(link.getOrderId()).orElse(null);
                 if (o == null) continue;
+
+                OrderDeliveryState ds = link.getDeliveryState() == null
+                        ? OrderDeliveryState.PENDING : link.getDeliveryState();
+                switch (ds) {
+                    case DELIVERED: delivered++; break;
+                    case RESCHEDULED: rescheduled++; break;
+                    case FAILED: failed++; break;
+                    default: pending++;
+                }
+
                 orders.add(TripOrderResponse.builder()
                         .orderId(o.getId())
                         .orderNumber(o.getOrderNumber())
@@ -671,10 +1028,21 @@ public class DeliveryService {
                         .widthCm(round1(link.getWidthCm()))
                         .heightCm(round1(link.getHeightCm()))
                         .orderStatus(o.getStatus().name())
+                        .deliveryState(ds.name())
+                        .rescheduleReason(link.getRescheduleReason() != null
+                                ? link.getRescheduleReason().name() : null)
+                        .deliveryNote(link.getDeliveryNote())
+                        .rescheduleCount(link.getRescheduleCount())
+                        .nextDeliveryDate(link.getNextDeliveryDate())
+                        .deliveredAt(link.getDeliveredAt())
                         .orderCreatedAt(o.getCreatedAt())
                         .build());
             }
             b.orders(orders);
+            b.deliveredCount(delivered);
+            b.rescheduledCount(rescheduled);
+            b.failedCount(failed);
+            b.pendingCount(pending);
         }
         return b.build();
     }

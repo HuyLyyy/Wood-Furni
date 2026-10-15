@@ -46,6 +46,28 @@ export const deliveryApi = {
     completeTrip: (id) =>
         apiClient.post(`/delivery/trips/${id}/complete`).then(unwrap),
 
+    // ─── Luồng hoãn giao hàng (bước 1 → 9) ─────────────────────────────
+
+    /** Bước 1: Tài xế đã đến địa điểm giao. SHIPPING → ARRIVED. */
+    arriveAtLocation: (id) =>
+        apiClient.post(`/delivery/trips/${id}/arrive`).then(unwrap),
+
+    /** Bước 2A: Giao thành công 1 đơn. Order → DELIVERED. */
+    markOrderDelivered: (id, orderId, body) =>
+        apiClient.post(`/delivery/trips/${id}/orders/${orderId}/deliver`, body).then(unwrap),
+
+    /** Bước 2C: Không liên lạc được. Order vẫn SHIPPING, chờ tài xế xác nhận. */
+    markOrderUnreachable: (id, orderId, body = {}) =>
+        apiClient.post(`/delivery/trips/${id}/orders/${orderId}/unreachable`, body).then(unwrap),
+
+    /** Bước 2B→9: Hoãn giao 1 đơn. Order → RESCHEDULED. Cảnh báo nếu lần 3. */
+    rescheduleOrder: (id, orderId, body) =>
+        apiClient.post(`/delivery/trips/${id}/orders/${orderId}/reschedule`, body).then(unwrap),
+
+    /** Bước 4': Giao thất bại 1 đơn. Order → RETURNED. */
+    markOrderFailed: (id, orderId, body) =>
+        apiClient.post(`/delivery/trips/${id}/orders/${orderId}/fail`, body).then(unwrap),
+
     // Bulk actions
     bulkStartShipping: (tripIds) =>
         apiClient.post('/delivery/trips/bulk-start', { tripIds }).then(unwrap),

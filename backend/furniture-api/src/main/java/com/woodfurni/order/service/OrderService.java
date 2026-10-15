@@ -1095,7 +1095,9 @@ public class OrderService {
                 case PENDING -> to == OrderStatus.CONFIRMED || to == OrderStatus.CANCELLED;
                 case CONFIRMED -> to == OrderStatus.PROCESSING || to == OrderStatus.CANCELLED;
                 case PROCESSING -> to == OrderStatus.SHIPPING;
-                case SHIPPING -> to == OrderStatus.DELIVERED;
+                case SHIPPING -> to == OrderStatus.DELIVERED || to == OrderStatus.RESCHEDULED
+                        || to == OrderStatus.RETURNED;
+                case RESCHEDULED -> to == OrderStatus.SHIPPING || to == OrderStatus.RETURNED;
                 case DELIVERED -> false;
                 case CANCELLED, RETURNED -> false;
             };
@@ -1153,6 +1155,21 @@ public class OrderService {
                     // This is also reachable via tracking-updates?isDelivered=true,
                     // but the generic endpoint mirrors the same role allow-list.
                     yield "SALES".equals(role) || "WAREHOUSE".equals(role);
+                }
+                if (to == OrderStatus.RESCHEDULED) {
+                    // Driver / warehouse / admin can mark SHIPPING → RESCHEDULED
+                    // when customer declines delivery. Sales/Admin handle this
+                    // through the dedicated reschedule endpoint anyway.
+                    yield "WAREHOUSE".equals(role) || "DRIVER".equals(role);
+                }
+                yield false;
+            }
+            case RESCHEDULED -> {
+                // RESCHEDULED → SHIPPING happens automatically when a new trip
+                // is created (warehouse / admin flow), so we allow it through
+                // generic status updates too.
+                if (to == OrderStatus.SHIPPING) {
+                    yield "WAREHOUSE".equals(role) || "DRIVER".equals(role);
                 }
                 yield false;
             }

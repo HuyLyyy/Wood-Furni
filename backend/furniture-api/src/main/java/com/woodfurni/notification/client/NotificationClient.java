@@ -3,6 +3,7 @@ package com.woodfurni.notification.client;
 import com.woodfurni.notification.config.GatewayClientConfig.GatewayProperties;
 import com.woodfurni.notification.dto.LowStockPayload;
 import com.woodfurni.notification.dto.OrderCreatedPayload;
+import com.woodfurni.notification.dto.OrderRescheduledPayload;
 import com.woodfurni.notification.dto.OrderSentToWarehousePayload;
 import com.woodfurni.notification.dto.OrderStatusPayload;
 import lombok.extern.slf4j.Slf4j;
@@ -100,6 +101,29 @@ public class NotificationClient {
                 .itemCount(itemCount)
                 .build();
         post("/internal/notify/order-sent-to-warehouse", payload);
+    }
+
+    /**
+     * Notify the customer's socket that their delivery has been rescheduled.
+     * Called from DeliveryService.rescheduleOrder() after the order is moved
+     * to RESCHEDULED with a new nextDeliveryDate.
+     */
+    public void notifyOrderRescheduled(String orderId, String orderNumber, String customerId,
+                                      String reason, java.time.Instant nextDeliveryDate,
+                                      int rescheduleCount, String preferredTimeWindow,
+                                      String note) {
+        if (!isEnabled()) return;
+        OrderRescheduledPayload payload = OrderRescheduledPayload.builder()
+                .orderId(orderId)
+                .orderNumber(orderNumber)
+                .customerId(customerId)
+                .reason(reason)
+                .nextDeliveryDate(nextDeliveryDate)
+                .rescheduleCount(rescheduleCount)
+                .preferredTimeWindow(preferredTimeWindow)
+                .note(note)
+                .build();
+        post("/internal/notify/order-rescheduled", payload);
     }
 
     // ------------------------------------------------------------------

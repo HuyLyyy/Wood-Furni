@@ -107,6 +107,18 @@ public class Order {
      */
     private String customerNote;
 
+    /**
+     * Số lần đơn này đã bị khách hoãn nhận. Tăng mỗi lần reschedule.
+     * Cảnh báo ở lần thứ 3 — CSKH nên liên hệ trực tiếp.
+     */
+    @Builder.Default
+    private int rescheduleCount = 0;
+
+    /**
+     * Ngày giao lại dự kiến sau khi khách hoãn. Null nếu chưa từng hoãn.
+     */
+    private Instant nextDeliveryDate;
+
     @CreatedDate
     private Instant createdAt;
 

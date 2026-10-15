@@ -30,5 +30,26 @@ public class TripOrderResponse {
     private double widthCm;
     private double heightCm;
     private String orderStatus;
+
+    // ─── Per-order delivery state (luồng hoãn giao) ────────────────────────
+
+    /** Trạng thái giao riêng của đơn trong chuyến: PENDING/DELIVERED/RESCHEDULED/FAILED. */
+    private String deliveryState;
+
+    /** Lý do hoãn / fail nếu có. */
+    private String rescheduleReason;
+
+    /** Ghi chú của tài xế. */
+    private String deliveryNote;
+
+    /** Số lần đơn này đã bị hoãn. */
+    private int rescheduleCount;
+
+    /** Ngày giao lại dự kiến. */
+    private Instant nextDeliveryDate;
+
+    /** Thời điểm xử lý lần cuối. */
+    private Instant deliveredAt;
+
     private Instant orderCreatedAt;
 }

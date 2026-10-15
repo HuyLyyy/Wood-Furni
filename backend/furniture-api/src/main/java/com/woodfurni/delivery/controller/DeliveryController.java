@@ -147,6 +147,96 @@ public class DeliveryController {
     }
 
     // ───────────────────────────────────────────────────────────────────────
+    // LUỒNG HOÃN GIAO HÀNG (Bước 1 → 9)
+    // ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Bước 1: Tài xế đã đến địa điểm giao hàng.
+     * SHIPPING → ARRIVED.
+     */
+    @PostMapping("/trips/{id}/arrive")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'DRIVER')")
+    @Operation(summary = "Tài xế đã đến địa điểm giao hàng — chuyến chuyển sang ĐÃ ĐẾN NƠI")
+    public ResponseEntity<ApiResponse<DeliveryTripResponse>> arriveAtLocation(
+            @PathVariable String id,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        return ResponseEntity.ok(ApiResponse.success("Đã đánh dấu đến nơi.", deliveryService.arriveAtLocation(id, performedBy)));
+    }
+
+    /**
+     * Bước 2A: Tài xế xác nhận giao thành công một đơn.
+     */
+    @PostMapping("/trips/{id}/orders/{orderId}/deliver")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'DRIVER')")
+    @Operation(summary = "Xác nhận giao thành công một đơn trong chuyến — chuyển đơn sang DELIVERED")
+    public ResponseEntity<ApiResponse<DeliveryActionResult>> markOrderDelivered(
+            @PathVariable String id,
+            @PathVariable String orderId,
+            @Valid @RequestBody MarkOrderDeliveredRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã xác nhận giao đơn thành công.",
+                deliveryService.markOrderDelivered(id, orderId, request, performedBy)));
+    }
+
+    /**
+     * Bước 2C: Tài xế không liên lạc được khách (sau 15-30 phút chờ).
+     */
+    @PostMapping("/trips/{id}/orders/{orderId}/unreachable")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'DRIVER')")
+    @Operation(summary = "Đánh dấu không liên lạc được khách — chờ tài xế xác nhận cuối")
+    public ResponseEntity<ApiResponse<DeliveryActionResult>> markOrderUnreachable(
+            @PathVariable String id,
+            @PathVariable String orderId,
+            @RequestBody(required = false) MarkOrderUnreachableNote request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        String note = request != null ? request.getNote() : null;
+        String photo = request != null ? request.getProofPhotoUrl() : null;
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã đánh dấu không liên lạc được.",
+                deliveryService.markOrderUnreachable(id, orderId, note, photo, performedBy)));
+    }
+
+    /**
+     * Bước 2B → 9: Tài xế xác nhận HOÃN giao hàng (lý do + thời gian giao lại + ghi chú).
+     * Đơn sẽ chuyển sang RESCHEDULED. Cảnh báo nếu đây là lần hoãn thứ 3.
+     */
+    @PostMapping("/trips/{id}/orders/{orderId}/reschedule")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'DRIVER')")
+    @Operation(summary = "Xác nhận HOÃN giao một đơn — chuyển đơn sang RESCHEDULED với lý do và thời gian giao lại")
+    public ResponseEntity<ApiResponse<DeliveryActionResult>> rescheduleOrder(
+            @PathVariable String id,
+            @PathVariable String orderId,
+            @Valid @RequestBody RescheduleOrderRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã ghi nhận hoãn giao đơn.",
+                deliveryService.rescheduleOrder(id, orderId, request, performedBy)));
+    }
+
+    /**
+     * Bước 4': Tài xế xác nhận giao THẤT BẠI (khách từ chối dứt khoát, địa chỉ
+     * không tiếp cận được, ...). Đơn sẽ chuyển sang RETURNED.
+     */
+    @PostMapping("/trips/{id}/orders/{orderId}/fail")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'DRIVER')")
+    @Operation(summary = "Xác nhận giao THẤT BẠI — chuyển đơn sang RETURNED (kết thúc, không giao lại)")
+    public ResponseEntity<ApiResponse<DeliveryActionResult>> markOrderFailed(
+            @PathVariable String id,
+            @PathVariable String orderId,
+            @Valid @RequestBody MarkOrderFailedRequest request,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã đánh dấu giao thất bại.",
+                deliveryService.markOrderFailed(id, orderId, request, performedBy)));
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
     // BULK ACTIONS
     // ───────────────────────────────────────────────────────────────────────
 

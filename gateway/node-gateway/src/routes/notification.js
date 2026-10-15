@@ -141,6 +141,37 @@ function buildNotificationRouter(realtimeNamespace) {
         res.json({ success: true, emittedTo: 'warehouse' });
     });
 
+    // ----------------------------------------------------------------
+    // POST /internal/notify/order-rescheduled → emit to user:<customerId>
+    // Luồng hoãn giao hàng: khi tài xế xác nhận hoãn, khách nhận được
+    // thông báo realtime để biết đơn đã được dời lịch giao.
+    // ----------------------------------------------------------------
+    router.post('/notify/order-rescheduled', (req, res) => {
+        const { orderId, orderNumber, customerId, reason, nextDeliveryDate,
+                rescheduleCount, preferredTimeWindow, note } = req.body || {};
+        if (!orderId || !orderNumber || !customerId) {
+            return res.status(400).json({
+                error: 'orderId, orderNumber and customerId are required',
+            });
+        }
+
+        const payload = {
+            orderId,
+            orderNumber,
+            reason: reason || null,
+            nextDeliveryDate: nextDeliveryDate || null,
+            rescheduleCount: rescheduleCount ?? 1,
+            preferredTimeWindow: preferredTimeWindow || null,
+            note: note || null,
+            updatedAt: new Date().toISOString(),
+        };
+
+        realtimeNamespace.to(`user:${customerId}`).emit('order.rescheduled', payload);
+        console.log(`[notify] order.rescheduled → user:${customerId}: ${JSON.stringify(payload)}`);
+
+        res.json({ success: true, emittedTo: `user:${customerId}` });
+    });
+
     return router;
 }
 

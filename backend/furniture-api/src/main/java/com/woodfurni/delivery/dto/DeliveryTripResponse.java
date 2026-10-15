@@ -41,6 +41,20 @@ public class DeliveryTripResponse {
     private Instant cancelledAt;
     private String cancelledBy;
     private String cancelReason;
+
+    // ─── Reschedule fields (luồng hoãn giao) ────────────────────────
+    private Instant arrivedAt;
+    private int rescheduleCount;
+    private String lastRescheduleReason;
+    private Instant nextDeliveryDate;
+    private Instant lastRescheduleAt;
+
+    /** Per-trip counters cho UI (tính nhanh, không cần join). */
+    private int deliveredCount;
+    private int rescheduledCount;
+    private int failedCount;
+    private int pendingCount;
+
     /** Danh sách đơn thuộc chuyến (rỗng trong list ngắn, đầy đủ trong detail). */
     @Builder.Default
     private List<TripOrderResponse> orders = new ArrayList<>();
