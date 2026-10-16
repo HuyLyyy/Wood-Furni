@@ -163,6 +163,21 @@ public class DeliveryController {
     }
 
     /**
+     * Dọn link orphan (đơn thuộc nhiều trip cùng lúc do bug cũ).
+     * Admin only. Trả về số link đã xóa.
+     */
+    @PostMapping("/trips/cleanup-orphan-links")
+    @PreAuthorize("hasAnyRole('ADMIN')")
+    @Operation(summary = "Dọn link PENDING/RESCHEDULED orphan (đơn thuộc nhiều trip)")
+    public ResponseEntity<ApiResponse<Integer>> cleanupOrphanLinks(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        String performedBy = userDetails != null ? userDetails.getUsername() : "system";
+        int removed = deliveryService.cleanupOrphanLinks(performedBy);
+        return ResponseEntity.ok(ApiResponse.success(
+                "Đã dọn " + removed + " link orphan.", removed));
+    }
+
+    /**
      * Tính lại status cho TẤT CẢ chuyến (chỉ chạy 1 lần sau khi deploy fix).
      */
     @PostMapping("/trips/recompute-all")

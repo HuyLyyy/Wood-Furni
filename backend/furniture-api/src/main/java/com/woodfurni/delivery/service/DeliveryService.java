@@ -477,11 +477,33 @@ public class DeliveryService {
 
         DeliveryTrip saved = tripRepository.save(trip);
 
-        // 6) Unlink đơn cũ (xóa TƯỜNG MINH link RESCHEDULED)
-        // KHÔNG xóa link DELIVERED/FAILED — giữ lại ở trip cũ làm lịch sử.
+        // 6) Dọn link cũ của các đơn được giao lại.
+        // Logic:
+        //   - Link RESCHEDULED (trip cũ): XÓA — đơn chuyển sang trip mới.
+        //   - Link DELIVERED/FAILED (trip cũ): GIỮ LẠI — làm lịch sử giao hàng.
+        //   - Link PENDING/UNREACHABLE ở TRIP KHÁC (không phải trip cũ RESCHEDULED):
+        //     XÓA — đơn chỉ được thuộc 1 trip tại 1 thời điểm.
+        //     (Trường hợp: trước đó user tạo trip khác nhưng fail, hoặc còn
+        //     link orphan do bug cũ.)
         for (DeliveryTripOrder oldLink : oldRescheduleLinks) {
             if (oldLink.getId() != null) {
                 tripOrderRepository.deleteById(oldLink.getId());
+            }
+        }
+        // Dọn link PENDING/UNREACHABLE orphan ở các trip khác cho cùng orderId
+        for (String orderId : orderIds) {
+            List<DeliveryTripOrder> allLinks = tripOrderRepository.findByOrderId(orderId);
+            for (DeliveryTripOrder l : allLinks) {
+                if (l.getTripId().equals(saved.getId())) continue; // đã link vào trip mới rồi
+                if (l.getDeliveryState() == OrderDeliveryState.PENDING
+                        || l.getDeliveryState() == OrderDeliveryState.UNREACHABLE
+                        || l.getDeliveryState() == OrderDeliveryState.RESCHEDULED) {
+                    if (l.getId() != null) {
+                        log.info("[RescheduleTrip] Removing orphan link {} (trip={}, state={}) for order {}",
+                                l.getId(), l.getTripId(), l.getDeliveryState(), orderId);
+                        tripOrderRepository.deleteById(l.getId());
+                    }
+                }
             }
         }
 
@@ -1197,6 +1219,75 @@ public class DeliveryService {
         }
         log.info("[DeliveryTrip] Bulk recompute by {} done: {} trips changed", performedBy, changed);
         return changed;
+    }
+
+    /**
+     * Dọn link PENDING/UNREACHABLE/RESCHEDULED orphan: xóa các link của 1 đơn
+     * ở TRIP CŨ khi đơn đã được link vào trip khác (hoặc đã DELIVERED).
+     *
+     * Dùng để sửa data cũ bị bug: đơn thuộc nhiều trip cùng lúc.
+     * Trả về số link đã xóa.
+     */
+    public int cleanupOrphanLinks(String performedBy) {
+        List<DeliveryTripOrder> all = tripOrderRepository.findAll();
+        int removed = 0;
+        // Group by orderId
+        Map<String, List<DeliveryTripOrder>> byOrder = new HashMap<>();
+        for (DeliveryTripOrder l : all) {
+            byOrder.computeIfAbsent(l.getOrderId(), k -> new ArrayList<>()).add(l);
+        }
+        for (Map.Entry<String, List<DeliveryTripOrder>> e : byOrder.entrySet()) {
+            List<DeliveryTripOrder> links = e.getValue();
+            if (links.size() <= 1) continue;
+            // Tìm link DELIVERED (ưu tiên giữ)
+            // Nếu có nhiều DELIVERED → giữ link mới nhất
+            // Xóa các link RESCHEDULED/PENDING/UNREACHABLE ở trip khác trip DELIVERED
+            DeliveryTripOrder keepDelivered = null;
+            for (DeliveryTripOrder l : links) {
+                if (l.getDeliveryState() == OrderDeliveryState.DELIVERED) {
+                    if (keepDelivered == null
+                            || (l.getDeliveredAt() != null
+                                && (keepDelivered.getDeliveredAt() == null
+                                    || l.getDeliveredAt().isAfter(keepDelivered.getDeliveredAt())))) {
+                        keepDelivered = l;
+                    }
+                }
+            }
+            // Nếu có link DELIVERED → xóa PENDING/RESCHEDULED ở trip khác
+            if (keepDelivered != null) {
+                for (DeliveryTripOrder l : links) {
+                    if (l.getId().equals(keepDelivered.getId())) continue;
+                    if (l.getDeliveryState() == OrderDeliveryState.DELIVERED) continue;
+                    log.warn("[DeliveryTrip] Cleanup: removing orphan link {} (trip={}, state={}) for order {} "
+                                    + "(already delivered in trip {})",
+                            l.getId(), l.getTripId(), l.getDeliveryState(), e.getKey(),
+                            keepDelivered.getTripId());
+                    tripOrderRepository.deleteById(l.getId());
+                    removed++;
+                }
+            } else {
+                // Không có DELIVERED → giữ link ở trip gần nhất (sequence/rescheduleAt mới nhất)
+                DeliveryTripOrder keep = links.get(0);
+                for (DeliveryTripOrder l : links) {
+                    if (l.getAddedAt() != null
+                            && (keep.getAddedAt() == null
+                                || l.getAddedAt().isAfter(keep.getAddedAt()))) {
+                        keep = l;
+                    }
+                }
+                for (DeliveryTripOrder l : links) {
+                    if (l.getId().equals(keep.getId())) continue;
+                    log.warn("[DeliveryTrip] Cleanup: removing orphan link {} (trip={}, state={}) for order {} "
+                                    + "(keeping link {} in trip {})",
+                            l.getId(), l.getTripId(), l.getDeliveryState(), e.getKey(),
+                            keep.getId(), keep.getTripId());
+                    tripOrderRepository.deleteById(l.getId());
+                    removed++;
+                }
+            }
+        }
+        log.info("[DeliveryTrip] Cleanup orphan links by {}: removed {} links", performedBy, removed);
+        return removed;
     }
 
     /**
