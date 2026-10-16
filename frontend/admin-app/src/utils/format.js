@@ -12,8 +12,8 @@
  */
 export const BUSINESS_TIMEZONE = 'Asia/Ho_Chi_Minh';
 
-// BUILD: 2026-10-15T13:10Z v3 — force Vercel bundle hash bump
-export const BUILD_VERSION = 'v3-2026-10-15-fix-vn-tz';
+// BUILD: 2026-10-16T12:40Z v4 — force Vercel bundle hash bump (fix VN_OFFSET_MS ReferenceError)
+export const BUILD_VERSION = 'v4-2026-10-16-fix-vn-offset-undefined';
 
 export const formatCurrency = (amount, currency = 'VND') => {
     if (amount == null) return '—';
@@ -142,10 +142,11 @@ function yyyyMmSplitter(s) {
 
 /**
  * Vietnam has no daylight savings, so the offset is a fixed -7h.
-// To convert a "wall-clock time in VN" (e.g. 00:00:00 on 2026-09-02)
-// to its UTC instant, subtract 7 hours:
-//   instant = Date.UTC(y,m,d,H,M,S) - 7 * 3600 * 1000
-// And stringify that instant with `.toISOString()`.
+ * To convert a "wall-clock time in VN" (e.g. 00:00:00 on 2026-09-02)
+ * to its UTC instant, subtract 7 hours:
+ *   instant = Date.UTC(y,m,d,H,M,S) - 7 * 3600 * 1000
+ * And stringify that instant with `.toISOString()`.
+ */
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 /**
