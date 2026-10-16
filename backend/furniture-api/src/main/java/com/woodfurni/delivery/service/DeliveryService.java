@@ -399,24 +399,17 @@ public class DeliveryService {
                         "Đơn " + order.getOrderNumber() + " không ở trạng thái RESCHEDULED "
                                 + "(hiện tại: " + order.getStatus() + "). Không thể giao lại.");
             }
-            // Tìm link RESCHEDULED gần nhất của order này
+            // Tìm TẤT CẢ link cũ của order này (ở mọi trip cũ). Phải xóa hết
+            // để đơn chỉ thuộc 1 trip — tránh tình trạng đơn hiển thị ở cả
+            // trip cũ (link DELIVERED) lẫn trip mới (link PENDING).
             List<DeliveryTripOrder> orderLinks = tripOrderRepository.findByOrderId(orderId);
-            DeliveryTripOrder rescheduleLink = null;
-            for (DeliveryTripOrder l : orderLinks) {
-                if (l.getDeliveryState() == OrderDeliveryState.RESCHEDULED) {
-                    if (rescheduleLink == null
-                            || (l.getDeliveredAt() != null
-                                && (rescheduleLink.getDeliveredAt() == null
-                                    || l.getDeliveredAt().isAfter(rescheduleLink.getDeliveredAt())))) {
-                        rescheduleLink = l;
-                    }
-                }
-            }
-            if (rescheduleLink == null) {
+            if (orderLinks.isEmpty()) {
                 throw new IllegalStateException(
-                        "Đơn " + order.getOrderNumber() + " không tìm thấy link RESCHEDULED.");
+                        "Đơn " + order.getOrderNumber() + " không tìm thấy link giao hàng nào.");
             }
-            oldLinks.add(rescheduleLink);
+            for (DeliveryTripOrder l : orderLinks) {
+                oldLinks.add(l);
+            }
         }
 
         // 2) Validate capacity
@@ -477,8 +470,11 @@ public class DeliveryService {
 
         // 6) Unlink đơn cũ (xóa DeliveryTripOrder cũ RESCHEDULED)
         // Giữ trip cũ làm lịch sử — chỉ xóa link join.
+        // Dùng deleteById thay vì delete(entity) để tránh stale entity issues.
         for (DeliveryTripOrder oldLink : oldLinks) {
-            tripOrderRepository.delete(oldLink);
+            if (oldLink.getId() != null) {
+                tripOrderRepository.deleteById(oldLink.getId());
+            }
         }
 
         // 7) Link đơn vào trip mới với state PENDING (chưa xử lý)
