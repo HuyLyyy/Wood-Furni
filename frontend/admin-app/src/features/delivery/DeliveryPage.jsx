@@ -87,9 +87,9 @@ export default function DeliveryPage() {
         {
             key: '_actions', header: 'Hành động', width: 320,
             render: (r) => {
-                // Chỉ SHIPPING/ARRIVED mới có thể bấm "Hoàn thành" trực tiếp.
-                // RESCHEDULED = đang chờ giao lại theo nextDeliveryDate, phải tạo trip giao lại.
-                const canComplete = r.status === 'SHIPPING' || r.status === 'ARRIVED';
+                // Nút "Hoàn thành" đã bỏ — trip tự động chuyển sang HOÀN THÀNH
+                // khi TẤT CẢ đơn trong chuyến đã DELIVERED (xem finalizeTripAfterAction).
+                // Chỉ nhân viên kho bắt đầu giao/hủy chuyến; không hoàn thành thủ công.
                 return (
                     <div className="row-actions">
                         {/* Luôn có nút xem chi tiết — áp dụng cho MỌI trạng thái */}
@@ -139,22 +139,16 @@ export default function DeliveryPage() {
                             </>
                         )}
 
-                        {canComplete && (
-                            <button
-                                type="button"
-                                className="btn-row btn-row--warning"
-                                disabled={bulkLoading}
-                                onClick={async () => {
-                                    if (!window.confirm(`Xác nhận hoàn thành chuyến ${r.tripNumber}?`)) return;
-                                    try {
-                                        await deliveryApi.completeTrip(r.id);
-                                        toast.success(`Đã hoàn thành ${r.tripNumber}`);
-                                        loadPage(pagination.page);
-                                    } catch (e) {
-                                        toast.error(e?.message || 'Thất bại');
-                                    }
-                                }}
-                            >Hoàn thành</button>
+                        {r.status === 'SHIPPING' && (
+                            <span className="row-hint" title="Trip tự hoàn thành khi tất cả đơn DELIVERED.">
+                                🚚 Đang giao — tự hoàn thành khi giao xong
+                            </span>
+                        )}
+
+                        {r.status === 'ARRIVED' && (
+                            <span className="row-hint" title="Tài xế đang xử lý đơn cuối. Trip tự hoàn thành khi giao xong.">
+                                📍 Đã đến nơi — tự hoàn thành khi giao xong
+                            </span>
                         )}
                     </div>
                 );
