@@ -4,6 +4,7 @@ import { deliveryApi } from '../../services/apiDelivery.js';
 import { formatDateTime, toIsoVnDateTimeLocal } from '../../utils/format.js';
 import { Button } from '../../components/index.js';
 import './DeliveryPage.css';
+import RescheduleTripModal from './RescheduleTripModal.jsx';
 
 const TRIP_STATUS_LABELS = {
     PLANNING:    { label: 'Lên kế hoạch',  cls: 'status--planning' },
@@ -64,6 +65,7 @@ export default function TripDetailModal({ tripId, onClose, onChange }) {
     const [activeOrder, setActiveOrder] = useState(null); // đơn đang mở form
     const [actionType, setActionType] = useState(null);   // 'deliver' | 'unreachable' | 'reschedule' | 'fail'
     const [form, setForm] = useState({});
+    const [rescheduleModalOpen, setRescheduleModalOpen] = useState(false);
 
     const load = async () => {
         setLoading(true);
@@ -193,6 +195,9 @@ export default function TripDetailModal({ tripId, onClose, onChange }) {
     const tripStatus = trip?.status;
     const canArrive = tripStatus === 'SHIPPING';
     const isActive = tripStatus === 'SHIPPING' || tripStatus === 'ARRIVED' || tripStatus === 'RESCHEDULED';
+    // Trip RESCHEDULED mà còn đơn RESCHEDULED → cho phép tạo trip giao lại.
+    const hasRescheduleOrders = (trip?.rescheduledCount || 0) > 0;
+    const canCreateRescheduleTrip = tripStatus === 'RESCHEDULED' && hasRescheduleOrders;
 
     const tripActions = useMemo(() => {
         if (!trip) return null;
@@ -203,9 +208,20 @@ export default function TripDetailModal({ tripId, onClose, onChange }) {
                         Đã đến địa điểm giao
                     </Button>
                 )}
+                {canCreateRescheduleTrip && (
+                    <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={busyAction}
+                        onClick={() => setRescheduleModalOpen(true)}
+                        title="Tạo chuyến xe mới để giao lại các đơn đang hoãn"
+                    >
+                        🚚 Tạo trip giao lại
+                    </Button>
+                )}
             </div>
         );
-    }, [trip, busyAction, canArrive]);
+    }, [trip, busyAction, canArrive, canCreateRescheduleTrip]);
 
     return (
         <div className="modal-overlay" onClick={onClose}>
@@ -420,6 +436,21 @@ export default function TripDetailModal({ tripId, onClose, onChange }) {
                             </div>
                         </div>
                     </div>
+                )}
+
+                {/* Modal tạo trip giao lại (chỉ mở khi trip RESCHEDULED có đơn hoãn) */}
+                {rescheduleModalOpen && (
+                    <RescheduleTripModal
+                        onClose={() => setRescheduleModalOpen(false)}
+                        onDone={async (newTripId) => {
+                            setRescheduleModalOpen(false);
+                            await load();
+                            onChange?.();
+                            if (newTripId) {
+                                toast.success('Đã tạo chuyến giao lại. Đang chuyển sang chuyến mới…');
+                            }
+                        }}
+                    />
                 )}
             </div>
         </div>

@@ -74,6 +74,15 @@ export const deliveryApi = {
 
     bulkCancelTrips: (tripIds, reason) =>
         apiClient.post('/delivery/trips/bulk-cancel', { tripIds, reason: reason || '' }).then(unwrap),
+
+    // ─── Reschedule flow (tạo trip giao lại) ─────────────────────────────
+    /** Danh sách đơn đang RESCHEDULED — chờ tạo trip giao lại. */
+    listRescheduleOrders: () =>
+        apiClient.get('/delivery/reschedule-orders').then(unwrap),
+
+    /** Tạo trip mới giao lại từ danh sách order RESCHEDULED. */
+    createRescheduleTrip: (body) =>
+        apiClient.post('/delivery/trips/reschedule', body).then(unwrap),
 };
 
 export const userApi = {

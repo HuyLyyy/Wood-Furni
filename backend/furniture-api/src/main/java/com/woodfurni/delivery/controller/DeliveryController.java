@@ -294,6 +294,44 @@ public class DeliveryController {
     }
 
     // ───────────────────────────────────────────────────────────────────────
+    // RESCHEDULE FLOW (Tạo trip giao lại)
+    // ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Danh sách đơn hàng đang RESCHEDULED — chờ admin tạo trip giao lại.
+     * Trả về thêm thông tin: số lần hoãn, lý do, nextDeliveryDate, source trip.
+     */
+    @GetMapping("/reschedule-orders")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN', 'SALES')")
+    @Operation(summary = "Danh sách đơn đang chờ giao lại (RESCHEDULED chưa tạo trip mới)")
+    public ResponseEntity<ApiResponse<List<RescheduleOrderResponse>>> listRescheduleOrders() {
+        return ResponseEntity.ok(ApiResponse.success(deliveryService.listRescheduleOrders()));
+    }
+
+    /**
+     * Tạo trip giao lại từ danh sách đơn RESCHEDULED.
+     * - Unlink đơn khỏi trip cũ (giữ lịch sử).
+     * - Link đơn vào trip mới với state PENDING.
+     * - Order: RESCHEDULED → SHIPPING.
+     */
+    @PostMapping("/trips/reschedule")
+    @PreAuthorize("hasAnyRole('WAREHOUSE', 'ADMIN')")
+    @Operation(summary = "Tạo chuyến xe giao lại từ các đơn đang RESCHEDULED")
+    public ResponseEntity<ApiResponse<DeliveryTripResponse>> createRescheduleTrip(
+            @AuthenticationPrincipal UserDetails userDetails,
+            @Valid @RequestBody CreateDeliveryTripRequest request) {
+        String createdBy = userDetails != null ? userDetails.getUsername() : "system";
+        DeliveryTripResponse trip = deliveryService.createRescheduleTrip(
+                request.getOrderIds(),
+                request.getVehicleTypeCode(),
+                request.getDriverId(),
+                request.getAssemblerIds(),
+                request.getNote(),
+                createdBy);
+        return ResponseEntity.ok(ApiResponse.success("Đã tạo chuyến giao lại.", trip));
+    }
+
+    // ───────────────────────────────────────────────────────────────────────
     // BULK ACTIONS
     // ───────────────────────────────────────────────────────────────────────
 

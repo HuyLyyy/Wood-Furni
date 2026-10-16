@@ -19,4 +19,7 @@ public interface DeliveryTripOrderRepository extends MongoRepository<DeliveryTri
     boolean existsByOrderId(String orderId);
 
     void deleteByTripId(String tripId);
+
+    /** Tìm tất cả link có trạng thái RESCHEDULED — dùng cho luồng tạo trip giao lại. */
+    List<DeliveryTripOrder> findByDeliveryState(com.woodfurni.delivery.enums.OrderDeliveryState state);
 }

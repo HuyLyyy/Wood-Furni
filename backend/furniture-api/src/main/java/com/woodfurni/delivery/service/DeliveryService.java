@@ -284,6 +284,260 @@ public class DeliveryService {
     }
 
     /**
+     * ─── LUỒNG TẠO TRIP GIAO LẠI (Manual Reschedule) ──────────────────────
+     *
+     * Khi trip đang RESCHEDULED có đơn hoãn giao, admin có thể tạo trip MỚI
+     * chỉ chứa các đơn RESCHEDULED để giao lại. Đơn được unlink khỏi trip cũ
+     * (giữ trip cũ làm lịch sử) và link vào trip mới với state PENDING.
+     *
+     * Bước xử lý:
+     *  1. Validate: tất cả orderIds phải tồn tại, đang ở OrderStatus.RESCHEDULED
+     *     và chưa có link active (chỉ có 1 link RESCHEDULED từ trip cũ).
+     *  2. Validate capacity (tái sử dụng previewCapacity).
+     *  3. Tạo trip mới (PLANNING) giống createTrip.
+     *  4. Unlink đơn khỏi trip cũ (xóa DeliveryTripOrder cũ).
+     *  5. Link đơn vào trip mới với deliveryState = PENDING.
+     *  6. Update order.status: RESCHEDULED → SHIPPING (chuyển sang luồng giao).
+     *  7. Log + trả về trip mới.
+     */
+    public List<RescheduleOrderResponse> listRescheduleOrders() {
+        // Lấy tất cả link đang RESCHEDULED — đơn đang chờ giao lại
+        List<DeliveryTripOrder> links = tripOrderRepository.findByDeliveryState(OrderDeliveryState.RESCHEDULED);
+
+        // Group by orderId để tránh duplicate (1 đơn có thể bị RESCHEDULED
+        // nhiều lần qua nhiều trip, chỉ lấy link mới nhất).
+        Map<String, DeliveryTripOrder> latestByOrder = new HashMap<>();
+        for (DeliveryTripOrder link : links) {
+            DeliveryTripOrder existing = latestByOrder.get(link.getOrderId());
+            if (existing == null
+                    || (link.getDeliveredAt() != null
+                        && (existing.getDeliveredAt() == null
+                            || link.getDeliveredAt().isAfter(existing.getDeliveredAt())))) {
+                latestByOrder.put(link.getOrderId(), link);
+            }
+        }
+
+        List<RescheduleOrderResponse> result = new ArrayList<>();
+        for (DeliveryTripOrder link : latestByOrder.values()) {
+            Order order = orderRepository.findById(link.getOrderId()).orElse(null);
+            if (order == null) continue;
+            // Chỉ lấy đơn đang ở OrderStatus.RESCHEDULED (chưa được SHIPPING lại)
+            if (order.getStatus() != OrderStatus.RESCHEDULED) continue;
+
+            DeliveryTrip sourceTrip = tripRepository.findById(link.getTripId()).orElse(null);
+            OrderMetrics m = calculateOrderMetrics(order);
+
+            result.add(RescheduleOrderResponse.builder()
+                    .orderId(order.getId())
+                    .orderNumber(order.getOrderNumber())
+                    .customerName(order.getCustomerName())
+                    .customerPhone(order.getCustomerPhone())
+                    .shippingAddress(order.getShippingAddress())
+                    .shippingDistrict(order.getShippingDistrict())
+                    .shippingCity(order.getShippingCity())
+                    .itemCount(m.itemCount())
+                    .weightKg(m.weightKg())
+                    .volumeM3(m.volumeM3())
+                    .lengthCm(m.lengthCm())
+                    .widthCm(m.widthCm())
+                    .heightCm(m.heightCm())
+                    .rescheduleCount(order.getRescheduleCount())
+                    .rescheduleReason(link.getRescheduleReason() != null
+                            ? link.getRescheduleReason().name() : null)
+                    .deliveryNote(link.getDeliveryNote())
+                    .nextDeliveryDate(order.getNextDeliveryDate() != null
+                            ? order.getNextDeliveryDate().toString() : null)
+                    .createdAt(order.getCreatedAt() != null
+                            ? order.getCreatedAt().toString() : null)
+                    .sourceTripId(sourceTrip != null ? sourceTrip.getId() : null)
+                    .sourceTripNumber(sourceTrip != null ? sourceTrip.getTripNumber() : null)
+                    .build());
+        }
+
+        // Sort: số lần hoãn giảm dần (ưu tiên khách hoãn nhiều lần), sau đó
+        // theo nextDeliveryDate tăng dần (giao trước).
+        result.sort((a, b) -> {
+            int byReschedule = Integer.compare(b.getRescheduleCount(), a.getRescheduleCount());
+            if (byReschedule != 0) return byReschedule;
+            if (a.getNextDeliveryDate() == null && b.getNextDeliveryDate() == null) return 0;
+            if (a.getNextDeliveryDate() == null) return 1;
+            if (b.getNextDeliveryDate() == null) return -1;
+            return a.getNextDeliveryDate().compareTo(b.getNextDeliveryDate());
+        });
+
+        return result;
+    }
+
+    /**
+     * Tạo trip giao lại từ danh sách orderIds đang RESCHEDULED.
+     *
+     * @param orderIds        danh sách order ID cần giao lại
+     * @param vehicleTypeCode loại xe (validate capacity)
+     * @param driverId        tài xế
+     * @param assemblerIds    nhân viên lắp ráp (optional)
+     * @param note            ghi chú (optional)
+     * @param createdByUserId username admin thực hiện
+     * @return trip mới (PLANNING) với các đơn đã được chuyển sang
+     */
+    public DeliveryTripResponse createRescheduleTrip(List<String> orderIds,
+                                                     String vehicleTypeCode,
+                                                     String driverId,
+                                                     List<String> assemblerIds,
+                                                     String note,
+                                                     String createdByUserId) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            throw new IllegalArgumentException("Phải chọn ít nhất 1 đơn hàng để giao lại.");
+        }
+
+        // 1) Validate từng đơn
+        List<DeliveryTripOrder> oldLinks = new ArrayList<>();
+        for (String orderId : orderIds) {
+            Order order = orderRepository.findById(orderId)
+                    .orElseThrow(() -> new EntityNotFoundException("Order not found: " + orderId));
+            if (order.getStatus() != OrderStatus.RESCHEDULED) {
+                throw new IllegalStateException(
+                        "Đơn " + order.getOrderNumber() + " không ở trạng thái RESCHEDULED "
+                                + "(hiện tại: " + order.getStatus() + "). Không thể giao lại.");
+            }
+            // Tìm link RESCHEDULED gần nhất của order này
+            List<DeliveryTripOrder> orderLinks = tripOrderRepository.findByOrderId(orderId);
+            DeliveryTripOrder rescheduleLink = null;
+            for (DeliveryTripOrder l : orderLinks) {
+                if (l.getDeliveryState() == OrderDeliveryState.RESCHEDULED) {
+                    if (rescheduleLink == null
+                            || (l.getDeliveredAt() != null
+                                && (rescheduleLink.getDeliveredAt() == null
+                                    || l.getDeliveredAt().isAfter(rescheduleLink.getDeliveredAt())))) {
+                        rescheduleLink = l;
+                    }
+                }
+            }
+            if (rescheduleLink == null) {
+                throw new IllegalStateException(
+                        "Đơn " + order.getOrderNumber() + " không tìm thấy link RESCHEDULED.");
+            }
+            oldLinks.add(rescheduleLink);
+        }
+
+        // 2) Validate capacity
+        TripCapacityResponse preview = previewCapacity(orderIds, vehicleTypeCode);
+        boolean blocking = preview.getReasons().stream().anyMatch(r -> !r.startsWith("⚠️"));
+        if (blocking || !preview.isFits()) {
+            throw new IllegalArgumentException(
+                    "Không thể tạo chuyến giao lại — " + String.join("; ", preview.getReasons()));
+        }
+
+        // 3) Resolve driver
+        User driver = userRepository.findById(driverId)
+                .orElseThrow(() -> new EntityNotFoundException("Driver not found: " + driverId));
+
+        // 4) Resolve assemblers
+        List<String> assemblerNames = new ArrayList<>();
+        if (assemblerIds != null && !assemblerIds.isEmpty()) {
+            if (assemblerIds.size() > MAX_ASSEMBLERS_PER_TRIP) {
+                throw new IllegalArgumentException(
+                        "Số lượng nhân viên lắp ráp không được vượt quá " + MAX_ASSEMBLERS_PER_TRIP);
+            }
+            for (String aId : assemblerIds) {
+                User a = userRepository.findById(aId)
+                        .orElseThrow(() -> new EntityNotFoundException("Assembler not found: " + aId));
+                assemblerNames.add(a.getFullName());
+            }
+        }
+
+        // 5) Tạo trip mới (PLANNING)
+        VehicleType vehicle = VehicleType.fromCode(vehicleTypeCode);
+        AggregatedMetrics agg = aggregate(orderIds);
+
+        String finalNote = (note != null ? note + " | " : "")
+                + "Giao lại " + orderIds.size() + " đơn đã hoãn";
+
+        DeliveryTrip trip = DeliveryTrip.builder()
+                .tripNumber(generateTripNumber())
+                .status(DeliveryTripStatus.PLANNING)
+                .vehicleTypeCode(vehicle.name())
+                .vehicleTypeName(vehicle.getDisplayName())
+                .driverId(driverId)
+                .driverName(driver.getFullName())
+                .driverPhone(driver.getPhone())
+                .totalOrders(agg.totalOrders)
+                .totalWeightKg(agg.totalWeightKg)
+                .totalVolumeM3(agg.totalVolumeM3)
+                .maxLengthCm(agg.maxLengthCm)
+                .maxWidthCm(agg.maxWidthCm)
+                .maxHeightCm(agg.maxHeightCm)
+                .note(finalNote)
+                .createdBy(createdByUserId)
+                .createdAt(Instant.now())
+                .assemblerIds(assemblerIds)
+                .assemblerNames(assemblerNames)
+                .build();
+
+        DeliveryTrip saved = tripRepository.save(trip);
+
+        // 6) Unlink đơn cũ (xóa DeliveryTripOrder cũ RESCHEDULED)
+        // Giữ trip cũ làm lịch sử — chỉ xóa link join.
+        for (DeliveryTripOrder oldLink : oldLinks) {
+            tripOrderRepository.delete(oldLink);
+        }
+
+        // 7) Link đơn vào trip mới với state PENDING (chưa xử lý)
+        AtomicInteger seq = new AtomicInteger(1);
+        for (String orderId : orderIds) {
+            Order o = orderRepository.findById(orderId).orElseThrow();
+            OrderMetrics m = calculateOrderMetrics(o);
+
+            DeliveryTripOrder newLink = DeliveryTripOrder.builder()
+                    .tripId(saved.getId())
+                    .orderId(o.getId())
+                    .sequence(seq.getAndIncrement())
+                    .weightKg(m.weightKg())
+                    .volumeM3(m.volumeM3())
+                    .lengthCm(m.lengthCm())
+                    .widthCm(m.widthCm())
+                    .heightCm(m.heightCm())
+                    .addedAt(Instant.now())
+                    .deliveryState(OrderDeliveryState.PENDING)
+                    .build();
+            tripOrderRepository.save(newLink);
+
+            // 8) Update order: RESCHEDULED → SHIPPING (chuyển sang luồng giao mới)
+            o.setStatus(OrderStatus.SHIPPING);
+            o.addStatusHistory(OrderStatus.SHIPPING.name(), createdByUserId,
+                    "Đã tạo chuyến giao lại " + saved.getTripNumber() + " (chuyến cũ đã hoãn)");
+            o.addTrackingUpdate(TrackingUpdate.builder()
+                    .status("Đang giao lại")
+                    .location("Kho")
+                    .note("Đã tạo chuyến giao lại " + saved.getTripNumber()
+                            + " — tài xế: " + driver.getFullName())
+                    .updatedAt(Instant.now())
+                    .updatedBy(createdByUserId)
+                    .build());
+            // Giữ rescheduleCount + nextDeliveryDate để tracking.
+            orderRepository.save(o);
+        }
+
+        // 9) Recompute status trip cũ (có thể cần chuyển sang RESCHEDULED
+        // hoặc COMPLETED tùy tình trạng còn lại).
+        // Gom các trip cũ unique rồi recompute.
+        Set<String> oldTripIds = oldLinks.stream()
+                .map(DeliveryTripOrder::getTripId)
+                .collect(Collectors.toSet());
+        for (String oldTripId : oldTripIds) {
+            try {
+                recomputeTripStatus(oldTripId, createdByUserId);
+            } catch (Exception e) {
+                log.warn("[RescheduleTrip] recompute old trip {} failed: {}", oldTripId, e.getMessage());
+            }
+        }
+
+        log.info("[RescheduleTrip] Created {} with {} orders (reschedule from {} old links) by {}",
+                saved.getTripNumber(), saved.getTotalOrders(), oldLinks.size(), createdByUserId);
+
+        return toTripResponse(saved, true);
+    }
+
+    /**
      * List trips với filter status + search theo tripNumber.
      *
      * Search hỗ trợ NHIỀU mã chuyến cùng lúc, phân cách bởi dấu phẩy hoặc khoảng trắng.
