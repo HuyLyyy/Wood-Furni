@@ -1045,39 +1045,73 @@ public class OrderService {
      */
     private void tryAutoCompleteTripForOrder(String orderId, String actorUserId) {
         try {
-            // Tìm link trip-order cho order này
-            var links = deliveryTripOrderRepository.findByOrderId(orderId);
-            if (links == null || links.isEmpty()) return;
+            // Bước 1: tìm tất cả link của order (có thể thuộc nhiều trip do
+            // giao lại — 1 order có thể có link ở trip cũ + trip mới)
+            var allLinks = deliveryTripOrderRepository.findByOrderId(orderId);
+            if (allLinks == null || allLinks.isEmpty()) return;
 
-            String tripId = links.get(0).getTripId();
-            var tripOpt = deliveryTripRepository.findById(tripId);
-            if (tripOpt.isEmpty()) return;
-
-            var trip = tripOpt.get();
-            // Chỉ auto-complete khi trip đang SHIPPING
-            if (trip.getStatus() != com.woodfurni.delivery.enums.DeliveryTripStatus.SHIPPING) {
-                return;
+            // Đồng bộ tất cả link PENDING/UNREACHABLE/RESCHEDULED → DELIVERED
+            // để TripDetailModal hiển thị đúng trạng thái (trước đây chỉ
+            // auto-complete trip mà KHÔNG cập nhật link → admin thấy link
+            // vẫn PENDING dù Order.status = DELIVERED).
+            for (var link : allLinks) {
+                if (link.getDeliveryState() == com.woodfurni.delivery.enums.OrderDeliveryState.DELIVERED
+                        || link.getDeliveryState() == com.woodfurni.delivery.enums.OrderDeliveryState.FAILED) {
+                    continue; // đã DELIVERED/FAILED rồi, giữ nguyên lịch sử
+                }
+                link.setDeliveryState(com.woodfurni.delivery.enums.OrderDeliveryState.DELIVERED);
+                if (link.getDeliveredAt() == null) {
+                    link.setDeliveredAt(java.time.Instant.now());
+                }
+                deliveryTripOrderRepository.save(link);
+                log.info("[AutoCompleteTrip] Link {} (trip={}, order={}) → DELIVERED (sync from order update, actor={})",
+                        link.getId(), link.getTripId(), orderId, actorUserId);
             }
 
-            // Lấy tất cả orderIds thuộc trip
-            var tripLinks = deliveryTripOrderRepository.findByTripIdOrderBySequenceAsc(tripId);
-            if (tripLinks.isEmpty()) return;
+            // Bước 2: với mỗi trip chứa order này, kiểm tra auto-complete
+            java.util.Set<String> tripIds = new java.util.HashSet<>();
+            for (var l : allLinks) tripIds.add(l.getTripId());
+            for (String tripId : tripIds) {
+                var tripOpt = deliveryTripRepository.findById(tripId);
+                if (tripOpt.isEmpty()) continue;
 
-            // Check trạng thái từng order
-            boolean allDone = tripLinks.stream().allMatch(link -> {
-                var o = orderRepository.findById(link.getOrderId()).orElse(null);
-                if (o == null) return false;
-                return o.getStatus() == OrderStatus.DELIVERED
-                        || o.getStatus() == OrderStatus.CANCELLED
-                        || o.getStatus() == OrderStatus.RETURNED;
-            });
+                var trip = tripOpt.get();
+                // Bỏ qua trip CANCELLED / RESCHEDULED / COMPLETED — không tự ý thay đổi
+                var st = trip.getStatus();
+                if (st == com.woodfurni.delivery.enums.DeliveryTripStatus.CANCELLED
+                        || st == com.woodfurni.delivery.enums.DeliveryTripStatus.RESCHEDULED
+                        || st == com.woodfurni.delivery.enums.DeliveryTripStatus.COMPLETED) {
+                    continue;
+                }
 
-            if (allDone) {
-                trip.setStatus(com.woodfurni.delivery.enums.DeliveryTripStatus.COMPLETED);
-                trip.setCompletedAt(java.time.Instant.now());
-                deliveryTripRepository.save(trip);
-                log.info("[AutoCompleteTrip] Trip {} → COMPLETED (triggered by order {} DELIVERED, actor={})",
-                        trip.getTripNumber(), orderId, actorUserId);
+                // Lấy tất cả link thuộc trip
+                var tripLinks = deliveryTripOrderRepository.findByTripIdOrderBySequenceAsc(tripId);
+                if (tripLinks.isEmpty()) continue;
+
+                // Check trạng thái từng order (kết hợp deliveryState link + Order.status
+                // để chắc chắn đồng bộ 2 phía — fix bug cũ chỉ check Order.status)
+                boolean allDone = tripLinks.stream().allMatch(link -> {
+                    if (link.getDeliveryState() == com.woodfurni.delivery.enums.OrderDeliveryState.DELIVERED
+                            || link.getDeliveryState() == com.woodfurni.delivery.enums.OrderDeliveryState.FAILED
+                            || link.getDeliveryState() == com.woodfurni.delivery.enums.OrderDeliveryState.RESCHEDULED) {
+                        return true;
+                    }
+                    var o = orderRepository.findById(link.getOrderId()).orElse(null);
+                    if (o == null) return false;
+                    return o.getStatus() == OrderStatus.DELIVERED
+                            || o.getStatus() == OrderStatus.CANCELLED
+                            || o.getStatus() == OrderStatus.RETURNED;
+                });
+
+                if (allDone) {
+                    trip.setStatus(com.woodfurni.delivery.enums.DeliveryTripStatus.COMPLETED);
+                    if (trip.getCompletedAt() == null) {
+                        trip.setCompletedAt(java.time.Instant.now());
+                    }
+                    deliveryTripRepository.save(trip);
+                    log.info("[AutoCompleteTrip] Trip {} → COMPLETED (triggered by order {} DELIVERED, actor={})",
+                            trip.getTripNumber(), orderId, actorUserId);
+                }
             }
         } catch (Exception ex) {
             log.warn("[AutoCompleteTrip] Failed to auto-complete trip for order {}: {}",
