@@ -535,10 +535,16 @@ public class DeliveryService {
             }
         }
 
-        log.info("[RescheduleTrip] Created {} with {} orders (reschedule from {} old links) by {}",
-                saved.getTripNumber(), saved.getTotalOrders(), oldRescheduleLinks.size(), createdByUserId);
+        // 10) Recompute trip mới (đảm bảo status đúng theo data thực).
+        // Trường hợp trip mới vừa tạo, các link mới đều PENDING → status giữ PLANNING.
+        // Nhưng nếu recompute thấy không còn PENDING (legacy) sẽ cập nhật đúng.
+        DeliveryTripResponse finalResponse = recomputeTripStatus(saved.getId(), createdByUserId);
 
-        return toTripResponse(saved, true);
+        log.info("[RescheduleTrip] Created {} with {} orders (reschedule from {} old links) by {}",
+                finalResponse.getTripNumber(), finalResponse.getTotalOrders(),
+                oldRescheduleLinks.size(), createdByUserId);
+
+        return finalResponse;
     }
 
     /**
@@ -1085,13 +1091,14 @@ public class DeliveryService {
      * Tính trạng thái chuyến dựa trên trạng thái của từng đơn. Pure function —
      * không lưu DB, chỉ trả về status mới.
      *
-     * Quy tắc:
-     *  1. Nếu tất cả đơn đã DELIVERED (và không còn PENDING/RESCHEDULED/FAILED/
-     *     UNREACHABLE nào) → COMPLETED.
-     *  2. Nếu KHÔNG có DELIVERED nào + tất cả đều RESCHEDULED/FAILED → RESCHEDULED.
-     *  3. Có DELIVERED + còn RESCHEDULED/FAILED (chờ giao lại) → giữ SHIPPING
-     *     (chuyến vẫn đang xử lý).
-     *  4. Có PENDING/UNREACHABLE → giữ status cũ (chuyến chưa xong).
+     * Quy tắc (ưu tiên dữ liệu thực, không phụ thuộc status cũ):
+     *  1. Chuyến rỗng (không có đơn nào) → giữ status cũ.
+     *  2. Còn PENDING/UNREACHABLE → giữ status cũ (PLANNING/SHIPPING).
+     *     Nếu trip đang COMPLETED/CANCELLED mà có đơn PENDING mới → mở lại SHIPPING.
+     *  3. Không còn PENDING/UNREACHABLE + còn RESCHEDULED/FAILED:
+     *     - Có DELIVERED → SHIPPING (đang giao lại phần còn lại)
+     *     - Không có DELIVERED → RESCHEDULED
+     *  4. Tất cả DELIVERED → COMPLETED.
      */
     public DeliveryTripStatus computeTripStatus(DeliveryTrip t) {
         int[] c = countStates(tripOrderRepository.findByTripIdOrderBySequenceAsc(t.getId()));
@@ -1101,25 +1108,29 @@ public class DeliveryService {
         if (total == 0) {
             return t.getStatus(); // chuyến rỗng — không đổi
         }
+        // Ưu tiên theo dữ liệu thực, không theo status cũ.
+        // Có đơn PENDING/UNREACHABLE → chuyến chưa xong.
+        // Nếu đang PLANNING thì giữ PLANNING; nếu đang SHIPPING thì giữ SHIPPING.
         if (pending > 0 || unreachable > 0) {
-            // Vẫn còn đơn cần xử lý — giữ nguyên status.
+            // Nếu trip đã bị đánh dấu hoàn thàng/cancel/reschedule trước đó
+            // nhưng có đơn PENDING mới (giao lại) → mở lại chuyến.
+            if (t.getStatus() == DeliveryTripStatus.COMPLETED
+                    || t.getStatus() == DeliveryTripStatus.CANCELLED) {
+                return DeliveryTripStatus.SHIPPING;
+            }
             return t.getStatus();
         }
-        if (delivered > 0 && rescheduled == 0 && failed == 0) {
-            // Tất cả delivered.
-            return DeliveryTripStatus.COMPLETED;
-        }
-        if (delivered == 0) {
-            // Không delivered, tất cả rescheduled/failed.
+        // Không còn PENDING/UNREACHABLE → kiểm tra còn RESCHEDULED/FAILED không
+        if (rescheduled > 0 || failed > 0) {
+            if (delivered > 0) {
+                // Có delivered + còn hoãn/thất bại → chuyến vẫn đang xử lý phần giao lại.
+                return DeliveryTripStatus.SHIPPING;
+            }
+            // Không delivered, tất cả rescheduled/failed → hoãn giao.
             return DeliveryTripStatus.RESCHEDULED;
         }
-        // Có delivered + có rescheduled/failed → chuyến vẫn đang xử lý phần giao lại.
-        // Nếu status hiện tại là COMPLETED thì giữ COMPLETED (legacy data).
-        // Còn lại → SHIPPING (chuyển từ RESCHEDULED về SHIPPING khi bắt đầu giao lại).
-        if (t.getStatus() == DeliveryTripStatus.COMPLETED) {
-            return DeliveryTripStatus.COMPLETED;
-        }
-        return DeliveryTripStatus.SHIPPING;
+        // Tất cả DELIVERED (và không còn đơn nào khác).
+        return DeliveryTripStatus.COMPLETED;
     }
 
     /** Trả về [delivered, rescheduled, failed, pending, unreachable]. */
