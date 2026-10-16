@@ -389,8 +389,10 @@ public class DeliveryService {
             throw new IllegalArgumentException("Phải chọn ít nhất 1 đơn hàng để giao lại.");
         }
 
-        // 1) Validate từng đơn
-        List<DeliveryTripOrder> oldLinks = new ArrayList<>();
+        // 1) Validate từng đơn + xác định link RESCHEDULED cần unlink
+        // Chỉ xóa link RESCHEDULED — giữ lại link DELIVERED/FAILED ở trip cũ
+        // để làm LỊCH SỬ giao hàng. Trip cũ recompute sẽ tự chuyển COMPLETED.
+        List<DeliveryTripOrder> oldRescheduleLinks = new ArrayList<>();
         for (String orderId : orderIds) {
             Order order = orderRepository.findById(orderId)
                     .orElseThrow(() -> new EntityNotFoundException("Order not found: " + orderId));
@@ -399,17 +401,24 @@ public class DeliveryService {
                         "Đơn " + order.getOrderNumber() + " không ở trạng thái RESCHEDULED "
                                 + "(hiện tại: " + order.getStatus() + "). Không thể giao lại.");
             }
-            // Tìm TẤT CẢ link cũ của order này (ở mọi trip cũ). Phải xóa hết
-            // để đơn chỉ thuộc 1 trip — tránh tình trạng đơn hiển thị ở cả
-            // trip cũ (link DELIVERED) lẫn trip mới (link PENDING).
+            // Tìm link RESCHEDULED của order này (bỏ qua DELIVERED/FAILED — giữ lịch sử)
             List<DeliveryTripOrder> orderLinks = tripOrderRepository.findByOrderId(orderId);
-            if (orderLinks.isEmpty()) {
-                throw new IllegalStateException(
-                        "Đơn " + order.getOrderNumber() + " không tìm thấy link giao hàng nào.");
-            }
+            DeliveryTripOrder rescheduleLink = null;
             for (DeliveryTripOrder l : orderLinks) {
-                oldLinks.add(l);
+                if (l.getDeliveryState() == OrderDeliveryState.RESCHEDULED) {
+                    if (rescheduleLink == null
+                            || (l.getDeliveredAt() != null
+                                && (rescheduleLink.getDeliveredAt() == null
+                                    || l.getDeliveredAt().isAfter(rescheduleLink.getDeliveredAt())))) {
+                        rescheduleLink = l;
+                    }
+                }
             }
+            if (rescheduleLink == null) {
+                throw new IllegalStateException(
+                        "Đơn " + order.getOrderNumber() + " không tìm thấy link RESCHEDULED nào.");
+            }
+            oldRescheduleLinks.add(rescheduleLink);
         }
 
         // 2) Validate capacity
@@ -468,10 +477,9 @@ public class DeliveryService {
 
         DeliveryTrip saved = tripRepository.save(trip);
 
-        // 6) Unlink đơn cũ (xóa DeliveryTripOrder cũ RESCHEDULED)
-        // Giữ trip cũ làm lịch sử — chỉ xóa link join.
-        // Dùng deleteById thay vì delete(entity) để tránh stale entity issues.
-        for (DeliveryTripOrder oldLink : oldLinks) {
+        // 6) Unlink đơn cũ (xóa TƯỜNG MINH link RESCHEDULED)
+        // KHÔNG xóa link DELIVERED/FAILED — giữ lại ở trip cũ làm lịch sử.
+        for (DeliveryTripOrder oldLink : oldRescheduleLinks) {
             if (oldLink.getId() != null) {
                 tripOrderRepository.deleteById(oldLink.getId());
             }
@@ -516,7 +524,7 @@ public class DeliveryService {
         // 9) Recompute status trip cũ (có thể cần chuyển sang RESCHEDULED
         // hoặc COMPLETED tùy tình trạng còn lại).
         // Gom các trip cũ unique rồi recompute.
-        Set<String> oldTripIds = oldLinks.stream()
+        Set<String> oldTripIds = oldRescheduleLinks.stream()
                 .map(DeliveryTripOrder::getTripId)
                 .collect(Collectors.toSet());
         for (String oldTripId : oldTripIds) {
@@ -528,7 +536,7 @@ public class DeliveryService {
         }
 
         log.info("[RescheduleTrip] Created {} with {} orders (reschedule from {} old links) by {}",
-                saved.getTripNumber(), saved.getTotalOrders(), oldLinks.size(), createdByUserId);
+                saved.getTripNumber(), saved.getTotalOrders(), oldRescheduleLinks.size(), createdByUserId);
 
         return toTripResponse(saved, true);
     }
