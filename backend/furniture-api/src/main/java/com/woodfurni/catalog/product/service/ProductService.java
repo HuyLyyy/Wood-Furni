@@ -5,6 +5,8 @@ import com.woodfurni.catalog.category.repository.CategoryRepository;
 import com.woodfurni.catalog.material.model.Material;
 import com.woodfurni.catalog.material.repository.MaterialRepository;
 import com.woodfurni.catalog.product.dto.*;
+import com.woodfurni.catalog.product.enums.ProductEnvironment;
+import com.woodfurni.catalog.product.enums.ProductRoom;
 import com.woodfurni.catalog.product.enums.ProductStatus;
 import com.woodfurni.catalog.product.model.Product;
 import com.woodfurni.catalog.product.repository.ProductRepository;
@@ -23,6 +25,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.stereotype.Service;
 import java.util.Objects;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -413,47 +416,25 @@ public class ProductService {
     }
 
     /**
-     * Minimum score a candidate must reach to be listed as "related".
-     * Tuned so that a same-environment product (env=4) from another
-     * category still qualifies, while a product matching nothing is
-     * filtered out instead of padding the grid.
-     */
-    private static final int MIN_RELATED_SCORE = 4;
-
-    /**
      * Find related products for a given product.
      *
-     * Matching priority (score weights) - the closer the attributes, the
-     * higher the score:
-     *   +8  same category (cung loai san pham: ghe voi ghe)
-     *   +6  shares at least one material (cung chat lieu go)
-     *   +4  same environment (trong nha / ngoai troi)
-     *   +2  same room
+     * Two-bucket strategy (per customer spec):
+     *  - Bucket A (up to 2/3 of limit): products that share categoryId.
+     *    Sorted by env match → room match → material overlap count → rating.
+     *  - Bucket B (remaining slots): products that share >=1 material but a
+     *    DIFFERENT category. Sorted by env match → room match → rating.
      *
-     * A candidate must score at least MIN_RELATED_SCORE to be listed, so we
-     * never pad the grid with unrelated products just to fill the slots.
-     * Environment is weighted heavily so an INDOOR chair ranks above a
-     * mismatched OUTDOOR table even when the latter shares the category.
-     *
-     * Sorted by score DESC, then ratingAverage DESC, then createdAt DESC.
-     * The source product itself is excluded.
+     * HARD filter applied in Mongo: source environment must match (or no env
+     * on source). Per the customer: an INDOOR cabinet must never sit next
+     * to an OUTDOOR table. Source product is always excluded.
      *
      * @param productId the source product id
      * @param limit     max number of related products to return
-     * @return list of up to {@code limit} ProductResponse, scored and ranked
+     * @return list of up to {@code limit} ProductResponse, ranked A then B
      */
     public List<ProductResponse> findRelated(String productId, int limit) {
         Product source = productRepository.findById(productId)
                 .orElseThrow(() -> new EntityNotFoundException("Product not found with id: " + productId));
-
-        // Query candidates that at least share the environment or room or
-        // category with the source, so Mongo does the coarse filtering for us.
-        // We deliberately do NOT apply a hard .limit() here: without a sort the
-        // server returns an arbitrary slice of the collection, which used to
-        // make genuinely-related products disappear from the grid.
-        Query q = new Query()
-                .addCriteria(Criteria.where("_id").ne(productId))
-                .addCriteria(Criteria.where("status").is(ProductStatus.ACTIVE));
 
         final var srcEnv = source.getEnvironment();
         final var srcRoom = source.getRoom();
@@ -461,87 +442,99 @@ public class ProductService {
         final List<String> srcMaterials = source.getMaterialIds() == null
                 ? List.of() : source.getMaterialIds();
 
-        // Build an OR of the coarse "same bucket" filters so Mongo does the
-        // heavy filtering for us.
-        List<Criteria> ors = new ArrayList<>();
-        if (srcEnv != null) ors.add(Criteria.where("environment").is(srcEnv));
-        if (srcRoom != null) ors.add(Criteria.where("room").is(srcRoom));
-        if (srcCategory != null) ors.add(Criteria.where("categoryId").is(srcCategory));
-        if (!srcMaterials.isEmpty()) {
-            ors.add(Criteria.where("materialIds").in(srcMaterials));
+        // Mongo pre-filter: ACTIVE, not the source, optionally environment match.
+        Query q = new Query()
+                .addCriteria(Criteria.where("_id").ne(productId))
+                .addCriteria(Criteria.where("status").is(ProductStatus.ACTIVE));
+        if (srcEnv != null) {
+            q.addCriteria(Criteria.where("environment").is(srcEnv));
         }
-        if (!ors.isEmpty()) {
-            q.addCriteria(new Criteria().orOperator(ors.toArray(new Criteria[0])));
-        }
+        // Pull a generous candidate set; sort + trim in memory.
+        q.limit(Math.max(limit * 4, 24));
 
         List<Product> candidates = mongoTemplate.find(q, Product.class);
         if (candidates.isEmpty()) return List.of();
 
-        List<Scored> scored = new ArrayList<>();
+        // Partition into two exclusive buckets. A candidate cannot be in both.
+        List<Product> sameCategory = new ArrayList<>();
+        List<Product> sameMaterial = new ArrayList<>();
         for (Product p : candidates) {
-            int score = 0;
-            // Same product type (ghế với ghế) — strongest signal.
-            if (srcCategory != null && srcCategory.equals(p.getCategoryId())) {
-                score += 8;
-            }
-            // Shares the same wood material.
-            if (!srcMaterials.isEmpty() && p.getMaterialIds() != null) {
-                for (String m : srcMaterials) {
-                    if (m != null && p.getMaterialIds().contains(m)) {
-                        score += 6;
-                        break;
-                    }
-                }
-            }
-            // Same environment: trong nhà / ngoài trời.
-            if (srcEnv != null && srcEnv == p.getEnvironment()) {
-                score += 4;
-            }
-            if (srcRoom != null && srcRoom == p.getRoom()) {
-                score += 2;
-            }
-            // Require a meaningful match so we never show unrelated filler
-            // just to fill the 8 slots in the grid.
-            if (score >= MIN_RELATED_SCORE) {
-                scored.add(new Scored(p, score));
+            boolean isSameCat = srcCategory != null && srcCategory.equals(p.getCategoryId());
+            boolean shareMat = !srcMaterials.isEmpty() && p.getMaterialIds() != null
+                    && !Collections.disjoint(srcMaterials, p.getMaterialIds());
+            if (isSameCat) {
+                sameCategory.add(p);
+            } else if (shareMat) {
+                sameMaterial.add(p);
             }
         }
 
-        if (scored.isEmpty()) return List.of();
-
-        // Highest score first, then rating, then recency as a tiebreaker.
-        scored.sort((a, b) -> {
-            int byScore = Integer.compare(b.score, a.score);
-            if (byScore != 0) return byScore;
-            double ar = a.product.getRatingAverage() == null ? 0 : a.product.getRatingAverage();
-            double br = b.product.getRatingAverage() == null ? 0 : b.product.getRatingAverage();
+        // Shared tie-break: rating DESC, then createdAt DESC.
+        java.util.Comparator<Product> tieBreak = (a, b) -> {
+            double ar = a.getRatingAverage() == null ? 0 : a.getRatingAverage();
+            double br = b.getRatingAverage() == null ? 0 : b.getRatingAverage();
             int byRating = Double.compare(br, ar);
             if (byRating != 0) return byRating;
-            java.time.Instant ac = a.product.getCreatedAt();
-            java.time.Instant bc = b.product.getCreatedAt();
+            java.time.Instant ac = a.getCreatedAt();
+            java.time.Instant bc = b.getCreatedAt();
             if (ac == null && bc == null) return 0;
             if (ac == null) return 1;
             if (bc == null) return -1;
             return bc.compareTo(ac);
-        });
+        };
 
-        List<Product> topProducts = scored.stream()
-                .limit(limit)
-                .map(s -> s.product)
-                .collect(Collectors.toList());
+        // Bucket A: same category. Primary: env match. Secondary: room match.
+        // Tertiary: more overlapping wood materials. Last: rating + recency.
+        sameCategory.sort(
+                java.util.Comparator.comparingInt((Product p) -> envMatchRank(p, srcEnv)).reversed()
+                        .thenComparingInt((Product p) -> roomMatchRank(p, srcRoom)).reversed()
+                        .thenComparingInt((Product p) -> materialOverlapCount(p, srcMaterials)).reversed()
+                        .thenComparing(tieBreak)
+        );
 
-        return buildPageResponse(topProducts, 0, topProducts.size(), topProducts.size())
-                .getItems();
+        // Bucket B: same material (only). Inside B we still prefer products
+        // that share environment + room, so an outdoor teak table still wins
+        // over an indoor teak chair when source is INDOOR/teak.
+        sameMaterial.sort(
+                java.util.Comparator.comparingInt((Product p) -> envMatchRank(p, srcEnv)).reversed()
+                        .thenComparingInt((Product p) -> roomMatchRank(p, srcRoom)).reversed()
+                        .thenComparing(tieBreak)
+        );
+
+        // Slot allocation: A gets up to 2/3 of the limit, B fills the rest.
+        int aSlots = Math.min(sameCategory.size(), (int) Math.ceil(limit * 2.0 / 3.0));
+        int bSlots = Math.min(sameMaterial.size(), limit - aSlots);
+        // If B under-filled because few same-material candidates exist, give
+        // the spare slots back to A.
+        if (aSlots + bSlots < limit) {
+            aSlots = Math.min(sameCategory.size(), limit - bSlots);
+        }
+        aSlots = Math.max(0, Math.min(aSlots, limit));
+        bSlots = Math.max(0, Math.min(bSlots, limit - aSlots));
+
+        List<Product> result = new ArrayList<>(limit);
+        result.addAll(sameCategory.subList(0, aSlots));
+        result.addAll(sameMaterial.subList(0, bSlots));
+
+        return buildPageResponse(result, 0, result.size(), result.size()).getItems();
     }
 
-    /** Internal helper for the related-products ranking. */
-    private static final class Scored {
-        final Product product;
-        final int score;
-        Scored(Product product, int score) {
-            this.product = product;
-            this.score = score;
+    // ----- bucket-sort helpers (all return int: higher = sorts first) -----
+    private static int envMatchRank(Product p, ProductEnvironment srcEnv) {
+        return (srcEnv != null && p.getEnvironment() == srcEnv) ? 1 : 0;
+    }
+
+    private static int roomMatchRank(Product p, ProductRoom srcRoom) {
+        return (srcRoom != null && p.getRoom() == srcRoom) ? 1 : 0;
+    }
+
+    private static int materialOverlapCount(Product p, List<String> srcMaterials) {
+        if (srcMaterials.isEmpty() || p.getMaterialIds() == null) return 0;
+        int n = 0;
+        for (String m : srcMaterials) {
+            if (m != null && p.getMaterialIds().contains(m)) n++;
         }
+        return n;
     }
 
     public ProductResponse create(ProductRequest request) {
