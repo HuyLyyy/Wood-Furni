@@ -413,13 +413,30 @@ public class ProductService {
     }
 
     /**
-     * Find related products for a given product. The matching score is:
-     *   +5  same category
-     *   +3  overlap on materialIds (any shared wood type)
-     *   +2  same environment (INDOOR / OUTDOOR)
-     *   +1  same room
-     * Products with at least one matching attribute are returned, sorted by
-     * score DESC then ratingAverage DESC. The current product is excluded.
+     * Minimum score a candidate must reach to be listed as "related".
+     * Tuned so that a same-environment product (env=4) from another
+     * category still qualifies, while a product matching nothing is
+     * filtered out instead of padding the grid.
+     */
+    private static final int MIN_RELATED_SCORE = 4;
+
+    /**
+     * Find related products for a given product.
+     *
+     * Matching priority (score weights) - the closer the attributes, the
+     * higher the score:
+     *   +8  same category (cung loai san pham: ghe voi ghe)
+     *   +6  shares at least one material (cung chat lieu go)
+     *   +4  same environment (trong nha / ngoai troi)
+     *   +2  same room
+     *
+     * A candidate must score at least MIN_RELATED_SCORE to be listed, so we
+     * never pad the grid with unrelated products just to fill the slots.
+     * Environment is weighted heavily so an INDOOR chair ranks above a
+     * mismatched OUTDOOR table even when the latter shares the category.
+     *
+     * Sorted by score DESC, then ratingAverage DESC, then createdAt DESC.
+     * The source product itself is excluded.
      *
      * @param productId the source product id
      * @param limit     max number of related products to return
@@ -429,48 +446,63 @@ public class ProductService {
         Product source = productRepository.findById(productId)
                 .orElseThrow(() -> new EntityNotFoundException("Product not found with id: " + productId));
 
-        // Pull up to ~4x the requested limit so we have enough candidates to
-        // rank and then trim down to the most relevant ones. Reasonable upper
-        // bound to avoid scanning the whole catalog.
-        int candidateSize = Math.max(limit * 4, 20);
+        // Query candidates that at least share the environment or room or
+        // category with the source, so Mongo does the coarse filtering for us.
+        // We deliberately do NOT apply a hard .limit() here: without a sort the
+        // server returns an arbitrary slice of the collection, which used to
+        // make genuinely-related products disappear from the grid.
         Query q = new Query()
                 .addCriteria(Criteria.where("_id").ne(productId))
-                .addCriteria(Criteria.where("status").is(ProductStatus.ACTIVE))
-                .limit(candidateSize);
+                .addCriteria(Criteria.where("status").is(ProductStatus.ACTIVE));
+
+        final var srcEnv = source.getEnvironment();
+        final var srcRoom = source.getRoom();
+        final String srcCategory = source.getCategoryId();
+        final List<String> srcMaterials = source.getMaterialIds() == null
+                ? List.of() : source.getMaterialIds();
+
+        // Build an OR of the coarse "same bucket" filters so Mongo does the
+        // heavy filtering for us.
+        List<Criteria> ors = new ArrayList<>();
+        if (srcEnv != null) ors.add(Criteria.where("environment").is(srcEnv));
+        if (srcRoom != null) ors.add(Criteria.where("room").is(srcRoom));
+        if (srcCategory != null) ors.add(Criteria.where("categoryId").is(srcCategory));
+        if (!srcMaterials.isEmpty()) {
+            ors.add(Criteria.where("materialIds").in(srcMaterials));
+        }
+        if (!ors.isEmpty()) {
+            q.addCriteria(new Criteria().orOperator(ors.toArray(new Criteria[0])));
+        }
 
         List<Product> candidates = mongoTemplate.find(q, Product.class);
         if (candidates.isEmpty()) return List.of();
 
-        // Compute scoring buckets from the source product.
-        final String srcCategory = source.getCategoryId();
-        final List<String> srcMaterials = source.getMaterialIds() == null
-                ? List.of() : source.getMaterialIds();
-        final var srcEnv = source.getEnvironment();
-        final var srcRoom = source.getRoom();
-
         List<Scored> scored = new ArrayList<>();
         for (Product p : candidates) {
             int score = 0;
+            // Same product type (ghế với ghế) — strongest signal.
             if (srcCategory != null && srcCategory.equals(p.getCategoryId())) {
-                score += 5;
+                score += 8;
             }
+            // Shares the same wood material.
             if (!srcMaterials.isEmpty() && p.getMaterialIds() != null) {
-                boolean materialOverlap = false;
                 for (String m : srcMaterials) {
                     if (m != null && p.getMaterialIds().contains(m)) {
-                        materialOverlap = true;
+                        score += 6;
                         break;
                     }
                 }
-                if (materialOverlap) score += 3;
             }
+            // Same environment: trong nhà / ngoài trời.
             if (srcEnv != null && srcEnv == p.getEnvironment()) {
-                score += 2;
+                score += 4;
             }
             if (srcRoom != null && srcRoom == p.getRoom()) {
-                score += 1;
+                score += 2;
             }
-            if (score > 0) {
+            // Require a meaningful match so we never show unrelated filler
+            // just to fill the 8 slots in the grid.
+            if (score >= MIN_RELATED_SCORE) {
                 scored.add(new Scored(p, score));
             }
         }

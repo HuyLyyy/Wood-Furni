@@ -614,6 +614,23 @@ function RelatedCard({ product }) {
                     <div className="related-card__category">{product.categoryName}</div>
                 )}
                 <h3 className="related-card__name">{product.name}</h3>
+                {/* Show the same attributes the customer is browsing for —
+                    wood material + indoor/outdoor — so the related grid reads
+                    as genuinely "the same kind of product". */}
+                {(product.environment || product.room) && (
+                    <div className="related-card__meta related-card__meta--env">
+                        {product.environment && (
+                            <span
+                                className={`related-card__env related-card__env--${product.environment.toLowerCase()}`}
+                            >
+                                {envLabel(product.environment)}
+                            </span>
+                        )}
+                        {product.room && (
+                            <span className="related-card__room">{roomLabel(product.room)}</span>
+                        )}
+                    </div>
+                )}
                 {product.materialNames && product.materialNames.length > 0 && (
                     <div className="related-card__meta">
                         {product.materialNames.join(', ')}
