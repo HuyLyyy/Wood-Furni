@@ -13,6 +13,12 @@ import { formatCurrency, formatNumber, formatMonth } from '../../utils/format.js
 import { statusLabel } from '../../utils/orderMeta.js';
 import './DashboardPage.css';
 
+// Chiều cao chung cho MỌI biểu đồ trên dashboard. Khiến các khung chart-card
+// có chiều cao bằng nhau (trước đây biểu đồ cột Top 10 cao hơn ~60px nên
+// không khớp với biểu đồ tròn). PHẢI đồng bộ với .dashboard__chart-skeleton
+// và .dashboard__chart-empty trong DashboardPage.css.
+const CHART_HEIGHT = 340;
+
 /**
  * DashboardPage — 4 KPI cards + 3 charts.
  *
@@ -202,7 +208,7 @@ export default function DashboardPage() {
                             <ChartEmpty text="Chưa có dữ liệu doanh thu" />
                         ) : isDailyView ? (
                             // ── Daily bar chart for the selected month ──
-                            <ResponsiveContainer width="100%" height={280}>
+                            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
                                 <BarChart
                                     data={revenue.map((r) => ({
                                         ...r,
@@ -237,7 +243,7 @@ export default function DashboardPage() {
                             </ResponsiveContainer>
                         ) : (
                             // ── Monthly line chart (default) ──
-                            <ResponsiveContainer width="100%" height={280}>
+                            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
                                 <LineChart data={revenue.map((r) => ({
                                     ...r,
                                     label: formatMonth(r.month),
@@ -265,7 +271,7 @@ export default function DashboardPage() {
                     </div>
                 </div>
 
-                <div className="dashboard__chart-card">
+                <div className="dashboard__chart-card dashboard__chart-card--wide">
                     <header className="dashboard__chart-head">
                         <h2>Đơn hàng theo trạng thái</h2>
                     </header>
@@ -275,15 +281,15 @@ export default function DashboardPage() {
                         ) : byStatus.length === 0 ? (
                             <ChartEmpty text="Chưa có đơn hàng" />
                         ) : (
-                            <ResponsiveContainer width="100%" height={280}>
+                            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
                                 <PieChart>
                                     <Pie
                                         data={byStatus}
                                         dataKey="count"
                                         nameKey="status"
                                         cx="50%" cy="50%"
-                                        outerRadius={90}
-                                        innerRadius={50}
+                                        outerRadius={115}
+                                        innerRadius={62}
                                         paddingAngle={2}
                                     >
                                         {byStatus.map((entry, i) => (
@@ -316,7 +322,7 @@ export default function DashboardPage() {
                         ) : topProducts.length === 0 ? (
                             <ChartEmpty text="Chưa có dữ liệu bán hàng" />
                         ) : (
-                            <ResponsiveContainer width="100%" height={Math.max(280, topProducts.length * 28 + 60)}>
+                            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
                                 <BarChart
                                     data={topProducts.map((p) => ({
                                         // Defense-in-depth: backend now always returns
@@ -344,7 +350,7 @@ export default function DashboardPage() {
                 </div>
 
                 {/* ── Environment (Indoor / Outdoor) Pie Chart ── */}
-                <div className="dashboard__chart-card">
+                <div className="dashboard__chart-card dashboard__chart-card--wide">
                     <header className="dashboard__chart-head">
                         <h2>Nội thất trong nhà vs ngoài trời</h2>
                         <span className="dashboard__chart-sub">Tỷ trọng doanh số</span>
@@ -355,7 +361,7 @@ export default function DashboardPage() {
                         ) : environmentRevenue.length === 0 ? (
                             <ChartEmpty text="Chưa có dữ liệu sản phẩm" />
                         ) : (
-                            <ResponsiveContainer width="100%" height={280}>
+                            <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
                                 <PieChart>
                                     <Pie
                                         data={environmentRevenue.map((r) => ({
@@ -363,8 +369,8 @@ export default function DashboardPage() {
                                             value: Number(r.revenue) || 0,
                                         }))}
                                         cx="50%" cy="50%"
-                                        outerRadius={90}
-                                        innerRadius={50}
+                                        outerRadius={115}
+                                        innerRadius={62}
                                         paddingAngle={2}
                                         dataKey="value"
                                         nameKey="name"

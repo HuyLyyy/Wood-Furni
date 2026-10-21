@@ -116,10 +116,13 @@
     text-decoration: underline;
 }
 
-/* ===== Charts ===== */
+/* ===== Charts =====
+   Mọi chart-card đều chiếm full width (grid-column: 1 / -1) để các khung
+   biểu đồ luôn BẰNG NHAU về chiều rộng — trước đây biểu đồ tròn nằm ở
+   cột 1fr nên hẹp hơn hẳn biểu đồ cột. */
 .dashboard__charts {
     display: grid;
-    grid-template-columns: 2fr 1fr;
+    grid-template-columns: 1fr;
     gap: 12px;
 }
 @media (max-width: 1024px) {
@@ -198,7 +201,7 @@
 
 .dashboard__chart-body { padding: 16px; flex: 1; }
 .dashboard__chart-skeleton {
-    height: 280px;
+    height: 340px;
     background: linear-gradient(90deg, var(--color-bg) 0%, #ececec 50%, var(--color-bg) 100%);
     background-size: 200% 100%;
     animation: chart-shimmer 1.4s infinite;
@@ -209,7 +212,7 @@
     100% { background-position: -200% 0; }
 }
 .dashboard__chart-empty {
-    height: 280px;
+    height: 340px;
     display: flex;
     align-items: center;
     justify-content: center;
